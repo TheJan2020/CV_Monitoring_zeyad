@@ -1,0 +1,10 @@
+# Config (.env)
+python-dotenv>=1.0.0
+
+# Step 1 — object detection (YOLO via Ultralytics)
+ultralytics>=8.3.0
+opencv-python>=4.8.0
+
+# Step 2 — pose detection (MediaPipe legacy solutions API)
+# 0.10.31+ removed mp.solutions on Windows; 0.10.14 is the last reliable build here.
+mediapipe==0.10.14
