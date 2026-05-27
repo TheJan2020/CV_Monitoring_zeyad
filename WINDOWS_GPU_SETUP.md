@@ -81,8 +81,8 @@ winget install -e --id Git.Git
 
 ```powershell
 cd $HOME\Desktop
-git clone https://github.com/BaselYAS/CV_Monitoring.git
-cd CV_Monitoring
+git clone https://github.com/TheJan2020/CV_Monitoring_zeyad.git
+cd CV_Monitoring_zeyad
 ```
 
 ## 3. Create venv + install with CUDA PyTorch
@@ -182,7 +182,7 @@ To skip the OpenCV window entirely (recommended for a dedicated GPU box):
 python workbench_activity.py --web --no-show
 ```
 
-To auto-start on boot, use Task Scheduler with "At log on" trigger and action `powershell -WindowStyle Hidden -Command "cd C:\path\to\CV_Monitoring; .\.venv\Scripts\Activate.ps1; python workbench_activity.py --web --no-show"`.
+To auto-start on boot, use Task Scheduler with "At log on" trigger and action `powershell -WindowStyle Hidden -Command "cd C:\path\to\CV_Monitoring_zeyad; .\.venv\Scripts\Activate.ps1; python workbench_activity.py --web --no-show"`.
 
 ## 9. Performance expectations
 
