@@ -66,6 +66,25 @@ INDEX_HTML = """
   .state.present { background:#3a3220; color:#ffd166; }
   .state.working { background:#1f3a24; color:#5ae07a; }
   .state.phone   { background:#3a1f1f; color:#ff5a5a; }
+  .activity { font-size:28px; font-weight:600; padding:12px; border-radius:6px; margin-bottom:6px; text-align:center; text-transform:uppercase; letter-spacing:.04em; }
+  .activity.asleep        { background:#1a1d3a; color:#9ab0ff; }
+  .activity.resting       { background:#1f2a3a; color:#8fc1ff; }
+  .activity.fidgeting     { background:#3a321a; color:#ffd166; }
+  .activity.restless      { background:#3a2a1a; color:#ffa66b; }
+  .activity.sitting_calm  { background:#1f3a24; color:#5ae07a; }
+  .activity.playing       { background:#3a2820; color:#ff9a4a; }
+  .activity.very_active   { background:#3a1f2a; color:#ff5a8c; }
+  .activity.standing,
+  .activity.walking,
+  .activity.running       { background:#1f3a3a; color:#5ad6e0; }
+  .activity.transitioning,
+  .activity.upright_still,
+  .activity.upright_moving,
+  .activity.uncertain,
+  .activity.lying,
+  .activity.sitting       { background:#2a2a2e; color:#bbb; }
+  .activity.out_of_frame  { background:#3a1f1f; color:#ff5a5a; }
+  .subline { font-size:12px; color:#9aa; text-align:center; margin-bottom:12px; }
   .row { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid #262629; }
   .row b { color:#fff; font-weight:500; }
   .row span { color:#9aa; font-variant-numeric:tabular-nums; }
@@ -86,7 +105,16 @@ INDEX_HTML = """
 <div class="wrap">
   <div class="video"><img id="stream" src="/stream" alt="live feed"></div>
   <div class="panel">
-    <h1>activity</h1>
+    <h1>person activity</h1>
+    <div id="activity" class="activity out_of_frame">—</div>
+    <div class="subline" id="activity-sub">waiting…</div>
+
+    <div class="row"><b>Posture</b><span id="posture">—</span></div>
+    <div class="row"><b>Motion</b><span id="motion">—</span></div>
+    <div class="row"><b>Still for</b><span id="still">0.0s</span></div>
+    <div class="row"><b>Body angle</b><span id="angle">0°</span></div>
+
+    <h1 style="margin-top:14px;">workbench state</h1>
     <div id="state" class="state idle">—</div>
 
     <div class="row"><b>Persons</b><span id="persons">0</span></div>
@@ -128,6 +156,23 @@ async function tick() {
     else if (s.state === 'present') { cls='present'; }
     stateEl.className = 'state ' + cls;
     stateEl.textContent = label;
+
+    // Pose-state activity (baby monitor block)
+    const act = s.activity || 'out_of_frame';
+    const activityEl = document.getElementById('activity');
+    activityEl.className = 'activity ' + act;
+    activityEl.textContent = act.replace(/_/g, ' ');
+    document.getElementById('posture').textContent = s.posture || '—';
+    document.getElementById('motion').textContent = s.motion || '—';
+    document.getElementById('still').textContent = (s.still_seconds ?? 0).toFixed(1) + 's';
+    document.getElementById('angle').textContent = Math.round(s.posture_angle_deg ?? 0) + '°';
+    let sub = '';
+    if (act === 'asleep')        sub = 'lying still for ' + (s.still_seconds ?? 0).toFixed(0) + 's';
+    else if (act === 'resting')  sub = 'lying still — not yet long enough for asleep';
+    else if (act === 'fidgeting' || act === 'restless') sub = 'lying but moving';
+    else if (act === 'playing')  sub = 'sitting & moving';
+    else if (act === 'out_of_frame') sub = 'no person / skeleton not visible';
+    document.getElementById('activity-sub').textContent = sub;
 
     document.getElementById('persons').textContent = s.person_count ?? 0;
     document.getElementById('source').textContent = s.source || '—';

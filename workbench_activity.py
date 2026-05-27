@@ -102,6 +102,7 @@ from env_settings import (
 from frigate_http import latest_jpeg_url, poll_frames
 from video_source import open_capture, read_loop
 import web_server
+from pose_state import PoseStateTracker
 from workbench_logic import (
     ActivityState,
     ActivityTracker,
@@ -205,6 +206,8 @@ def main() -> None:
 
     if args.web:
         web_server.start(host=args.web_host, port=args.web_port)
+
+    pose_state_tracker = PoseStateTracker()
 
     if use_direct:
         print(f"Direct video source: {source!r}")
@@ -457,6 +460,16 @@ def main() -> None:
                     pose_fs = score_pose(primary_pose.landmarks, roi)
                     merge_pose_into_score(fs, pose_fs)
                     pose_wrists = wrists_from_pose_landmarks(primary_pose.landmarks)
+
+            if primary_pose is not None and primary_pose.keypoints_xy is not None:
+                pose_state = pose_state_tracker.update(
+                    primary_pose.keypoints_xy,
+                    primary_pose.keypoints_conf,
+                    dt,
+                    frame_h=fh,
+                )
+            else:
+                pose_state = pose_state_tracker.update(None, None, dt, frame_h=fh)
 
             wrists_for_yolo: list[tuple[float, float]] = []
             wrists_stable: list[tuple[float, float]] = []
@@ -716,6 +729,12 @@ def main() -> None:
                     fps_now = 1.0 / dt if dt > 0 else 0.0
                     web_state = {
                         "state": state.value,
+                        "activity": pose_state.activity,
+                        "posture": pose_state.posture.value,
+                        "motion": pose_state.motion.value,
+                        "motion_score": float(pose_state.motion_score),
+                        "still_seconds": float(pose_state.still_seconds),
+                        "posture_angle_deg": float(pose_state.posture_angle_deg),
                         "medium_score": float(fs.medium_score),
                         "strict_score": float(fs.strict_score),
                         "person_count": int(n_persons),
