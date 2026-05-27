@@ -41,6 +41,12 @@ def get_yolo_model() -> str:
     return (os.getenv("YOLO_MODEL") or "yolo11s.pt").strip() or "yolo11s.pt"
 
 
+def get_yolo_device() -> str:
+    """YOLO inference device — '' = auto (CPU on Mac, CUDA if available),
+    'cuda:0' / 'cuda:1' to force a GPU, 'cpu' to force CPU, 'mps' for Apple Silicon."""
+    return (os.getenv("YOLO_DEVICE") or "").strip()
+
+
 def get_yolo_pose_model() -> str:
     """YOLO11 pose model — person keypoints (multi-person, same pass as detection)."""
     return (os.getenv("YOLO_POSE_MODEL") or "yolo11s-pose.pt").strip() or "yolo11s-pose.pt"

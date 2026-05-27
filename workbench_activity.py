@@ -95,8 +95,13 @@ from env_settings import (
     use_pose,
     use_yolo_pose,
     log_verbose,
+    resolve_video_source,
+    use_frigate_http,
+    get_yolo_device,
 )
 from frigate_http import latest_jpeg_url, poll_frames
+from video_source import open_capture, read_loop
+import web_server
 from workbench_logic import (
     ActivityState,
     ActivityTracker,
@@ -158,32 +163,54 @@ def main() -> None:
     parser.add_argument("--base-url", default="")
     parser.add_argument("--camera", default="")
     parser.add_argument("--fps", type=float, default=0.0)
+    parser.add_argument("--source", default="", help="Override VIDEO_SOURCE (direct RTSP/webcam).")
+    parser.add_argument("--direct", action="store_true", help="Force direct VIDEO_SOURCE even if FRIGATE_BASE_URL is set.")
     parser.add_argument("--no-show", action="store_true", help="Print state only, no window.")
     parser.add_argument("--no-pose", action="store_true", help="YOLO only, no skeleton overlay.")
+    parser.add_argument("--web", action="store_true", help="Serve live dashboard on http://<host>:<port>/")
+    parser.add_argument("--web-host", default="0.0.0.0", help="Web dashboard bind address (default 0.0.0.0).")
+    parser.add_argument("--web-port", type=int, default=8000, help="Web dashboard port (default 8000).")
+    parser.add_argument("--device", default="", help="YOLO device override: '', 'cuda:0', 'cpu', 'mps'.")
     args = parser.parse_args()
 
     base = (args.base_url or get_frigate_base_url()).strip().rstrip("/")
     camera = (args.camera or get_frigate_camera()).strip()
     fps = args.fps if args.fps > 0 else get_frigate_fps()
-    if not base or not camera:
-        raise SystemExit("Set FRIGATE_BASE_URL and FRIGATE_CAMERA in .env")
+    use_direct = args.direct or not (base and use_frigate_http())
+    source = (args.source or resolve_video_source()).strip() if use_direct else ""
+    if not use_direct and (not base or not camera):
+        raise SystemExit("Set FRIGATE_BASE_URL and FRIGATE_CAMERA in .env, or set VIDEO_SOURCE for direct mode")
 
     roi = get_workbench_roi()
     th = get_workbench_thresholds()
-    model = YOLO(get_yolo_model())
+    yolo_device = (args.device or get_yolo_device()).strip()
+
+    def _to_device(m: YOLO) -> YOLO:
+        if yolo_device:
+            m.to(yolo_device)
+        return m
+
+    model = _to_device(YOLO(get_yolo_model()))
     yolo_imgsz = get_yolo_imgsz()
     phone_model = model
     phone_model_name = get_yolo_model()
     if needs_device_yolo_model():
         phone_model_name = get_yolo_phone_model()
-        phone_model = model if phone_model_name == get_yolo_model() else YOLO(phone_model_name)
+        phone_model = model if phone_model_name == get_yolo_model() else _to_device(YOLO(phone_model_name))
     yolo_devices_imgsz = get_yolo_devices_imgsz()
     device_class_ids = enabled_work_device_class_ids()
     enable_pose = use_pose() and not args.no_pose
     use_yolo_pose_path = enable_pose and use_yolo_pose()
-    pose_model = YOLO(get_yolo_pose_model()) if use_yolo_pose_path else None
+    pose_model = _to_device(YOLO(get_yolo_pose_model())) if use_yolo_pose_path else None
 
-    print(f"Frigate: {latest_jpeg_url(base, camera)}")
+    if args.web:
+        web_server.start(host=args.web_host, port=args.web_port)
+
+    if use_direct:
+        print(f"Direct video source: {source!r}")
+    else:
+        print(f"Frigate: {latest_jpeg_url(base, camera)}")
+    print(f"YOLO device: {yolo_device or 'auto (CPU unless ultralytics finds CUDA/MPS)'}")
     roi_label = "full frame" if roi.is_full_frame() else f"{roi.x1},{roi.y1} — {roi.x2},{roi.y2}"
     print(f"ROI: {roi_label}")
     print(f"Pipeline: {pipeline_passes_label()}")
@@ -276,9 +303,21 @@ def main() -> None:
         else nullcontext(None)
     )
 
+    cap = None
+    if use_direct:
+        cap = open_capture(source)
+        if not cap.isOpened():
+            raise SystemExit(f"Could not open video source: {source!r}")
+        frame_iter = read_loop(cap)
+    else:
+        frame_iter = poll_frames(base, camera, fps=fps)
+
+    prev_t = time.perf_counter()
     with mp_pose_ctx as mp_pose_inst:
-        for frame in poll_frames(base, camera, fps=fps):
+        for frame in frame_iter:
             t0 = time.perf_counter()
+            dt = max(1e-3, t0 - prev_t)
+            prev_t = t0
             fs = FrameScore()
             fs.pose_used_fallback = False
             person_poses: list = []
@@ -623,7 +662,7 @@ def main() -> None:
                 phone_hint_shown = False
 
             fs.compute_totals(use_yolo=True)
-            state = tracker.update(fs, interval)
+            state = tracker.update(fs, dt)
 
             if verbose_log:
                 log_frame_scores(
@@ -648,7 +687,8 @@ def main() -> None:
                 )
                 last_state = state
 
-            if not args.no_show:
+            need_vis = (not args.no_show) or args.web
+            if need_vis:
                 vis = draw_explain_overlay(
                     frame,
                     roi,
@@ -672,14 +712,56 @@ def main() -> None:
                     wrist_keyboard_overlaps=wrist_keyboard_overlaps,
                     wrist_mouse_overlaps=wrist_mouse_overlaps,
                 )
-                cv2.imshow("Workbench activity (explain)", vis)
-                if cv2.waitKey(1) & 0xFF in (ord("q"), ord("Q")):
-                    break
+                if args.web:
+                    fps_now = 1.0 / dt if dt > 0 else 0.0
+                    web_state = {
+                        "state": state.value,
+                        "medium_score": float(fs.medium_score),
+                        "strict_score": float(fs.strict_score),
+                        "person_count": int(n_persons),
+                        "on_phone": bool(fs.on_phone),
+                        "phone_near_hand": bool(fs.phone_near_hand),
+                        "on_laptop": bool(fs.on_laptop),
+                        "on_keyboard": bool(fs.on_keyboard),
+                        "on_mouse": bool(fs.on_mouse),
+                        "best_phone_iou_pct": float(fs.best_phone_wrist_iou_pct),
+                        "best_laptop_iou_pct": float(fs.best_laptop_hand_iou_pct),
+                        "best_keyboard_iou_pct": float(fs.best_keyboard_hand_iou_pct),
+                        "best_mouse_iou_pct": float(fs.best_mouse_hand_iou_pct),
+                        "work_streak_s": float(tracker.work_surface_streak),
+                        "work_threshold_s": float(th["work_on_s"]),
+                        "present_streak_s": float(tracker.present_streak),
+                        "fps": fps_now,
+                        "source": source if use_direct else f"frigate {camera}",
+                        "timestamp": time.strftime("%H:%M:%S"),
+                        "detections": [
+                            {
+                                "name": d.name,
+                                "role": d.role,
+                                "confidence": float(d.confidence),
+                                "stable": bool(d.stable),
+                                "near_hand": bool(d.near_hand),
+                                "is_primary": bool(d.is_primary),
+                                "box": [int(d.x1), int(d.y1), int(d.x2), int(d.y2)],
+                            }
+                            for d in sorted(
+                                yolo_detections, key=lambda x: -x.confidence
+                            )[:20]
+                        ],
+                    }
+                    web_server.publish(vis, web_state)
+                if not args.no_show:
+                    cv2.imshow("Workbench activity (explain)", vis)
+                    if cv2.waitKey(1) & 0xFF in (ord("q"), ord("Q")):
+                        break
 
-            elapsed = time.perf_counter() - t0
-            if elapsed < interval:
-                time.sleep(interval - elapsed)
+            if not use_direct:
+                elapsed = time.perf_counter() - t0
+                if elapsed < interval:
+                    time.sleep(interval - elapsed)
 
+    if cap is not None:
+        cap.release()
     if not args.no_show:
         cv2.destroyAllWindows()
 

@@ -8,3 +8,6 @@ opencv-python>=4.8.0
 # Step 2 — pose detection (MediaPipe legacy solutions API)
 # 0.10.31+ removed mp.solutions on Windows; 0.10.14 is the last reliable build here.
 mediapipe==0.10.14
+
+# Step 3 — live web dashboard (workbench_activity.py --web)
+flask>=3.0.0
