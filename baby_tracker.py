@@ -140,7 +140,6 @@ class BabyTracker:
         *,
         posture: str | None,
         motion: str | None,
-        motion_score: float = 0.0,
     ) -> LockedBox | None:
         """Feed one frame's worth of evidence.
 
@@ -228,10 +227,10 @@ class BabyTracker:
                 )
 
         # Update activity state (only when LOCKED)
-        self._update_activity(posture, motion, motion_score, t)
+        self._update_activity(posture, motion, t)
         return self.lock
 
-    def _update_activity(self, posture: str | None, motion: str | None, motion_score: float, t: float) -> None:
+    def _update_activity(self, posture: str | None, motion: str | None, t: float) -> None:
         if self.state != LockState.LOCKED:
             self.activity = "out_of_frame"
             self._still_since = None
@@ -248,10 +247,13 @@ class BabyTracker:
             self._still_since = None
             self._still_seconds = 0.0
 
-        # Map to 5 simplified states
+        # Map to 5 simplified states.
+        # Note: motion_score is already normalized 0..1 against the 'active'
+        # threshold in PoseStateTracker, so checking it again here was
+        # double-counting and firing on any small shift. Rely on the
+        # categorical motion classification + upright postures only.
         moving_a_lot = (
             motion == "active"
-            or motion_score >= self.moving_a_lot_norm
             or posture in ("standing", "walking", "running")
         )
         if moving_a_lot:

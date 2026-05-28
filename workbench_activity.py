@@ -532,7 +532,6 @@ def main() -> None:
                     person_evidence,
                     posture=pose_state.posture.value,
                     motion=pose_state.motion.value,
-                    motion_score=float(pose_state.motion_score),
                 )
                 # If we have a lock but no fresh YOLO box, synthesize one.
                 if baby_lock is not None and not person_evidence:
