@@ -59,6 +59,28 @@ from config_store import (
 _REPO = Path(__file__).parent.resolve()
 _PY = sys.executable  # use this venv's python for subprocess workers
 
+# Per-camera detection thresholds; map JSON keys to env vars consumed by
+# workbench_activity.py via env_settings.py.
+THRESHOLD_ENV_MAP = {
+    "general":  "YOLO_CONF",
+    "person":   "YOLO_PERSON_CONF",
+    "pose":     "YOLO_POSE_CONF",
+    "phone":    "YOLO_PHONE_CONF",
+    "laptop":   "YOLO_LAPTOP_CONF",
+    "keyboard": "YOLO_KEYBOARD_CONF",
+    "mouse":    "YOLO_MOUSE_CONF",
+}
+
+DEFAULT_THRESHOLDS = {
+    "general":  0.40,
+    "person":   0.40,
+    "pose":     0.10,
+    "phone":    0.40,
+    "laptop":   0.40,
+    "keyboard": 0.40,
+    "mouse":    0.40,
+}
+
 
 class CameraSubprocess:
     """One workbench_activity.py subprocess + lifecycle."""
@@ -88,6 +110,12 @@ class CameraSubprocess:
         env["FRIGATE_BASE_URL"] = ""   # ensure direct RTSP, not Frigate
         env["USE_FRIGATE_HTTP"] = "0"
         env["PYTHONUNBUFFERED"] = "1"
+        # Per-camera detection thresholds override .env defaults
+        thresholds = self.config.get("thresholds") or {}
+        for key, env_var in THRESHOLD_ENV_MAP.items():
+            v = thresholds.get(key)
+            if v is not None and v != "":
+                env[env_var] = str(v)
         args = [
             _PY, "-u", "workbench_activity.py",
             "--web", "--no-show",
@@ -334,6 +362,7 @@ async function loadCameras() {
       <td class="row-inline"><input value="${c.port}" data-field="port" type="number" style="width:80px;"></td>
       <td><div class="toggle ${c.enabled?'on':''}" data-field="enabled"></div></td>
       <td class="actions">
+        <a class="btn sec" href="/settings/camera/${c.id}">Configure</a>
         <button class="btn" data-action="save">Save</button>
         <button class="btn danger" data-action="delete">Delete</button>
       </td>
@@ -412,6 +441,147 @@ document.getElementById('pw-form').addEventListener('submit', async (e) => {
 });
 
 loadCameras();
+</script>
+</body></html>
+"""
+
+
+CAMERA_CONFIG_HTML = """
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ cam.name }} — Configure — CV Hub</title>
+<style>
+:root { color-scheme: dark; }
+body { font-family:-apple-system,Segoe UI,sans-serif; background:#111; color:#ddd; margin:0; }
+header { padding:14px 20px; background:#1b1b1f; display:flex; align-items:center; gap:14px; border-bottom:1px solid #262629; }
+header h1 { font-size:18px; font-weight:600; margin:0; color:#fff; }
+header .nav { margin-left:auto; display:flex; gap:14px; font-size:13px; }
+header .nav a { color:#9aa; text-decoration:none; }
+header .nav a:hover { color:#fff; }
+main { max-width:880px; margin:0 auto; padding:20px; }
+section { background:#1b1b1f; border-radius:8px; padding:18px 20px; margin-bottom:18px; }
+section h2 { margin:0 0 14px; font-size:14px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:.04em; }
+section .desc { color:#9aa; font-size:12px; margin:-8px 0 14px; }
+.form-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:10px 16px; }
+.form-grid label { font-size:11px; color:#9aa; text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; display:block; }
+.form-grid .full { grid-column:1/-1; }
+input, select { background:#262629; color:#fff; border:1px solid #2f2f33; border-radius:5px; padding:8px 10px; font-size:13px; font-family:inherit; width:100%; box-sizing:border-box; }
+input:focus, select:focus { outline:none; border-color:#5ad6e0; }
+.thresholds-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; }
+.thresh { background:#262629; border-radius:6px; padding:10px 12px; }
+.thresh-name { font-size:12px; color:#fff; text-transform:capitalize; font-weight:500; margin-bottom:6px; display:flex; justify-content:space-between; }
+.thresh-name code { color:#5ad6e0; font-size:11px; font-weight:400; }
+.thresh input[type=range] { width:100%; margin:6px 0 4px; }
+.thresh input[type=number] { width:70px; text-align:right; }
+.thresh .row { display:flex; align-items:center; gap:8px; justify-content:space-between; font-size:11px; color:#9aa; }
+.btn { background:#5ad6e0; color:#000; border:0; border-radius:5px; padding:9px 18px; font-size:13px; font-weight:600; cursor:pointer; }
+.btn:hover { background:#7ae5ef; }
+.btn.sec { background:#2f2f33; color:#ddd; }
+.muted { color:#9aa; font-size:12px; }
+.ok { color:#5ae07a; font-size:12px; }
+.err { color:#ff7a7a; font-size:12px; }
+.bar { display:flex; gap:12px; align-items:center; }
+</style></head><body>
+<header>
+  <h1>CV Hub</h1>
+  <div class="nav">
+    <a href="/">Grid</a>
+    <a href="/settings">Settings</a>
+    <a href="/camera/{{ cam.id }}">View live ›</a>
+    <a href="/logout">Logout ({{ user }})</a>
+  </div>
+</header>
+<main>
+  <p style="margin-bottom:18px;"><a href="/settings" style="color:#5ad6e0;text-decoration:none;font-size:13px;">← all cameras</a></p>
+  <h1 style="margin:0 0 4px;font-size:22px;">{{ cam.name }}</h1>
+  <p class="muted" style="margin-bottom:18px;">id: <code>{{ cam.id }}</code> · port {{ cam.port }} · <a href="/camera/{{ cam.id }}" style="color:#5ad6e0;">view stream</a></p>
+
+  <form id="cam-form">
+
+    <section>
+      <h2>Basic</h2>
+      <div class="form-grid">
+        <div><label>Name</label><input name="name" value="{{ cam.name }}" required></div>
+        <div><label>Port</label><input name="port" type="number" min="8001" max="8099" value="{{ cam.port }}" required></div>
+        <div class="full"><label>RTSP URL</label><input name="rtsp_url" value="{{ cam.rtsp_url }}" required></div>
+        <div><label>Enabled</label><select name="enabled"><option value="true" {% if cam.enabled %}selected{% endif %}>yes</option><option value="false" {% if not cam.enabled %}selected{% endif %}>no</option></select></div>
+        <div><label>ROI (x1,y1,x2,y2)</label><input name="roi" value="{{ cam.roi|join(',') }}" placeholder="0,0,1,1"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Detection thresholds</h2>
+      <p class="desc">Per-camera YOLO confidence floors. Higher = fewer false positives. Lower = catches more (including noise). Defaults: 0.40 for most classes, 0.10 for pose keypoints.</p>
+      <div class="thresholds-grid">
+        {% for key in threshold_keys %}
+        <div class="thresh">
+          <div class="thresh-name">
+            <span>{{ key }}</span>
+            <code>default {{ defaults[key] }}</code>
+          </div>
+          <input type="range" min="0" max="1" step="0.01" data-tkey="{{ key }}" value="{{ cam.thresholds[key] if cam.thresholds and key in cam.thresholds else defaults[key] }}">
+          <div class="row">
+            <span>0.00</span>
+            <input type="number" min="0" max="1" step="0.01" data-tkey-num="{{ key }}" value="{{ cam.thresholds[key] if cam.thresholds and key in cam.thresholds else defaults[key] }}">
+            <span>1.00</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="bar">
+      <button class="btn" type="submit">Save & restart worker</button>
+      <span id="msg"></span>
+    </div>
+  </form>
+
+</main>
+<script>
+const camId = "{{ cam.id }}";
+
+// Two-way sync between range slider and number input for each threshold
+document.querySelectorAll('input[type=range][data-tkey]').forEach(slider => {
+  const key = slider.dataset.tkey;
+  const num = document.querySelector(`input[type=number][data-tkey-num="${key}"]`);
+  slider.addEventListener('input', () => { num.value = slider.value; });
+  num.addEventListener('input', () => { slider.value = num.value; });
+});
+
+document.getElementById('cam-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const msg = document.getElementById('msg');
+  msg.className = 'muted'; msg.textContent = 'Saving…';
+  try {
+    const roiText = fd.get('roi').trim();
+    let roi = [0,0,1,1];
+    if (roiText) {
+      const parts = roiText.split(',').map(x => parseFloat(x.trim()));
+      if (parts.length !== 4 || parts.some(isNaN)) throw new Error('ROI must be 4 numbers x1,y1,x2,y2 in 0–1');
+      roi = parts;
+    }
+    const thresholds = {};
+    document.querySelectorAll('input[type=number][data-tkey-num]').forEach(el => {
+      thresholds[el.dataset.tkeyNum] = parseFloat(el.value);
+    });
+    const body = {
+      name: fd.get('name').trim(),
+      rtsp_url: fd.get('rtsp_url').trim(),
+      port: parseInt(fd.get('port'), 10),
+      enabled: fd.get('enabled') === 'true',
+      roi: roi,
+      thresholds: thresholds,
+    };
+    const r = await fetch('/api/cameras/' + camId, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    msg.className = 'ok'; msg.textContent = 'Saved. Worker restarting…';
+  } catch (err) {
+    msg.className = 'err'; msg.textContent = err.message;
+  }
+});
 </script>
 </body></html>
 """
@@ -597,6 +767,20 @@ def settings_page():
     return render_template_string(SETTINGS_HTML, user=session.get("user", ""))
 
 
+@app.route("/settings/camera/<cam_id>")
+def settings_camera(cam_id):
+    cam = get_camera(cam_id)
+    if cam is None:
+        return redirect(url_for("settings_page"))
+    return render_template_string(
+        CAMERA_CONFIG_HTML,
+        cam=cam,
+        defaults=DEFAULT_THRESHOLDS,
+        threshold_keys=list(THRESHOLD_ENV_MAP.keys()),
+        user=session.get("user", ""),
+    )
+
+
 # ---- Camera CRUD API ----------------------------------------------------
 
 @app.route("/api/cameras", methods=["GET"])
@@ -620,6 +804,7 @@ def api_create_camera():
         "roi": data.get("roi") or [0, 0, 1, 1],
         "port": int(data["port"]) if "port" in data and data["port"] is not None else next_free_port(),
         "enabled": bool(data.get("enabled", True)),
+        "thresholds": data.get("thresholds") or dict(DEFAULT_THRESHOLDS),
     }
     if not cam["rtsp_url"]:
         return jsonify({"error": "rtsp_url is required"}), 400
@@ -635,7 +820,7 @@ def api_update_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     merged = dict(existing)
-    for k in ("name", "rtsp_url", "roi", "enabled"):
+    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds"):
         if k in data:
             merged[k] = data[k]
     if "port" in data and data["port"] is not None:
