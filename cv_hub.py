@@ -146,6 +146,29 @@ POSE_STATE_INPUT_HINTS = {
     "motion_active": {"min": 0.01,  "max": 1.0,  "step": 0.01},
 }
 
+# Camera "type" — drives which dedicated pipeline mode the worker runs.
+CAMERA_TYPES = ("general", "baby")
+
+# Sensible defaults for a freshly created baby camera (sticky lock, longer
+# tolerance for detection drops, only person + pose detections enabled).
+BABY_DEFAULTS = {
+    "detections": {
+        "person": True, "pose": True,
+        "phone": False, "laptop": False, "keyboard": False, "mouse": False,
+        "extra_tools": False, "clean_view": True,
+    },
+    "thresholds": {
+        "general": 0.30, "person": 0.20, "pose": 0.10,
+        "phone": 0.40, "laptop": 0.40, "keyboard": 0.40, "mouse": 0.40,
+    },
+    "pose_state": {
+        "sleep_seconds": 30.0,
+        "hold_seconds":  60.0,
+        "motion_still":  0.04,
+        "motion_active": 0.20,
+    },
+}
+
 
 class CameraSubprocess:
     """One workbench_activity.py subprocess + lifecycle."""
@@ -175,6 +198,7 @@ class CameraSubprocess:
         env["FRIGATE_BASE_URL"] = ""   # ensure direct RTSP, not Frigate
         env["USE_FRIGATE_HTTP"] = "0"
         env["PYTHONUNBUFFERED"] = "1"
+        env["CAMERA_TYPE"] = (self.config.get("type") or "general").strip().lower()
         # Per-camera detection thresholds override .env defaults
         thresholds = self.config.get("thresholds") or {}
         for key, env_var in THRESHOLD_ENV_MAP.items():
@@ -642,10 +666,15 @@ input:focus, select:focus { outline:none; border-color:#5ad6e0; }
     <form id="add-cam-form" class="form-grid">
       <div><label>ID</label><input name="id" placeholder="cam_2" required></div>
       <div><label>Name</label><input name="name" placeholder="Living room" required></div>
-      <div class="full"><label>RTSP URL</label><input name="rtsp_url" placeholder="rtsp://admin:password@192.168.1.10:554/Preview_01_sub" required></div>
+      <div><label>Type</label><select name="type">
+        <option value="general">General — full activity classifier</option>
+        <option value="baby">Baby monitor — persistent lock, simplified states</option>
+      </select></div>
       <div><label>Port</label><input name="port" type="number" min="8001" max="8099" value="" placeholder="auto"></div>
+      <div class="full"><label>RTSP URL</label><input name="rtsp_url" placeholder="rtsp://admin:password@192.168.1.10:554/Preview_01_sub" required></div>
       <div><label>Enabled</label><select name="enabled"><option value="true">yes</option><option value="false">no</option></select></div>
-      <div class="full"><label>ROI x1,y1,x2,y2 (normalized 0–1, leave blank for full frame)</label><input name="roi" placeholder="0,0,1,1"></div>
+      <div><label>ROI x1,y1,x2,y2 (blank = full frame)</label><input name="roi" placeholder="0,0,1,1"></div>
+      <div class="full" style="font-size:11px;color:#9aa;">Pick <b>Baby monitor</b> to seed sticky lock + clean view + person/pose-only detection defaults. You can still draw an ROI for the crib region later on the Configure page.</div>
       <div class="full"><button class="btn" type="submit">Add camera</button> <span id="add-msg"></span></div>
     </form>
   </section>
@@ -680,11 +709,15 @@ async function loadCameras() {
   const cams = await fetchJson('/api/cameras');
   const wrap = document.getElementById('cam-table-wrap');
   if (!cams.length) { wrap.innerHTML = '<div class="empty">No cameras yet — add one below.</div>'; return; }
-  let html = '<table><thead><tr><th>ID</th><th>Name</th><th>RTSP</th><th>ROI</th><th>Port</th><th>Enabled</th><th></th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>ID</th><th>Type</th><th>Name</th><th>RTSP</th><th>ROI</th><th>Port</th><th>Enabled</th><th></th></tr></thead><tbody>';
   for (const c of cams) {
     const safeUrl = (c.rtsp_url || '').replace(/(:[^/@]+)(@)/, ':***$2');
+    const typeBadge = (c.type === 'baby')
+      ? '<span style="background:#1f2a3a;color:#8fc1ff;padding:2px 7px;border-radius:3px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;">baby</span>'
+      : '<span style="color:#778;font-size:11px;">general</span>';
     html += `<tr data-id="${c.id}">
       <td><code>${c.id}</code></td>
+      <td>${typeBadge}</td>
       <td class="row-inline"><input value="${c.name||''}" data-field="name"></td>
       <td class="row-inline"><input value="${c.rtsp_url||''}" data-field="rtsp_url" style="width:280px;" title="${safeUrl}"></td>
       <td class="row-inline"><input value="${roiToText(c.roi)}" data-field="roi" style="width:120px;"></td>
@@ -742,6 +775,7 @@ document.getElementById('add-cam-form').addEventListener('submit', async (e) => 
     const portStr = fd.get('port');
     const body = {
       id: fd.get('id').trim(),
+      type: fd.get('type') || 'general',
       name: fd.get('name').trim(),
       rtsp_url: fd.get('rtsp_url').trim(),
       enabled: fd.get('enabled') === 'true',
@@ -1400,16 +1434,27 @@ def api_create_camera():
         return jsonify({"error": "id is required"}), 400
     if get_camera(cam_id) is not None:
         return jsonify({"error": f"camera '{cam_id}' already exists"}), 409
+    cam_type = (data.get("type") or "general").strip().lower()
+    if cam_type not in CAMERA_TYPES:
+        return jsonify({"error": f"type must be one of {list(CAMERA_TYPES)}"}), 400
+    # Choose sensible defaults based on type (baby cameras get sticky tracker
+    # settings, clean view, no device detections).
+    type_defaults = BABY_DEFAULTS if cam_type == "baby" else {
+        "thresholds": dict(DEFAULT_THRESHOLDS),
+        "detections": dict(DEFAULT_DETECTIONS),
+        "pose_state": dict(DEFAULT_POSE_STATE),
+    }
     cam = {
         "id": cam_id,
+        "type": cam_type,
         "name": (data.get("name") or cam_id).strip(),
         "rtsp_url": (data.get("rtsp_url") or "").strip(),
         "roi": data.get("roi") or [0, 0, 1, 1],
         "port": int(data["port"]) if "port" in data and data["port"] is not None else next_free_port(),
         "enabled": bool(data.get("enabled", True)),
-        "thresholds": data.get("thresholds") or dict(DEFAULT_THRESHOLDS),
-        "detections": data.get("detections") or dict(DEFAULT_DETECTIONS),
-        "pose_state": data.get("pose_state") or dict(DEFAULT_POSE_STATE),
+        "thresholds": data.get("thresholds") or type_defaults["thresholds"],
+        "detections": data.get("detections") or type_defaults["detections"],
+        "pose_state": data.get("pose_state") or type_defaults["pose_state"],
     }
     if not cam["rtsp_url"]:
         return jsonify({"error": "rtsp_url is required"}), 400
@@ -1425,7 +1470,7 @@ def api_update_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     merged = dict(existing)
-    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections", "pose_state"):
+    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections", "pose_state", "type"):
         if k in data:
             merged[k] = data[k]
     if "port" in data and data["port"] is not None:

@@ -212,6 +212,18 @@ def main() -> None:
     if args.web:
         web_server.start(host=args.web_host, port=args.web_port)
 
+    # Baby-monitor mode (CAMERA_TYPE=baby): use the BabyTracker for a
+    # persistent lock + simplified 5-state activity machine.
+    camera_type = (os.environ.get("CAMERA_TYPE") or "general").strip().lower()
+    baby_tracker = None
+    if camera_type == "baby":
+        from baby_tracker import BabyTracker
+        baby_tracker = BabyTracker(
+            sleep_seconds=get_pose_sleep_seconds(),
+            hold_seconds=get_pose_hold_seconds(),
+        )
+        print(f"Camera type: baby (BabyTracker lock+states active)")
+
     pose_state_tracker = PoseStateTracker(
         still_for_sleep_s=get_pose_sleep_seconds(),
         hold_seconds=get_pose_hold_seconds(),
@@ -505,6 +517,43 @@ def main() -> None:
             else:
                 pose_state = pose_state_tracker.update(None, None, dt, frame_h=fh)
 
+            # Baby-mode persistent lock: feed every frame, get back the locked
+            # bbox (may carry across YOLO drops up to hold_seconds). When a
+            # lock is held but YOLO didn't detect this frame, synth the lock
+            # into yolo_detections so downstream rendering shows it.
+            baby_lock = None
+            if baby_tracker is not None:
+                person_evidence = [
+                    ((d.x1, d.y1, d.x2, d.y2), float(d.confidence))
+                    for d in yolo_detections if d.name == "person"
+                ]
+                baby_lock = baby_tracker.observe(
+                    t0,
+                    person_evidence,
+                    posture=pose_state.posture.value,
+                    motion=pose_state.motion.value,
+                    motion_score=float(pose_state.motion_score),
+                )
+                # If we have a lock but no fresh YOLO box, synthesize one.
+                if baby_lock is not None and not person_evidence:
+                    from workbench_logic import YoloDetection as _YD
+                    synth = _YD(
+                        name="person",
+                        confidence=float(baby_lock.confidence),
+                        x1=baby_lock.x1, y1=baby_lock.y1, x2=baby_lock.x2, y2=baby_lock.y2,
+                        in_roi=True,
+                        near_hand=False,
+                        role="person",
+                        inside_person=False,
+                        is_primary=True,
+                        stable=True,
+                        stable_age_s=float(baby_lock.age_s),
+                    )
+                    yolo_detections.append(synth)
+                    n_persons = max(1, n_persons)
+                    if primary_person is None:
+                        primary_person = synth
+
             # bbox-shape fallback: when posture is UNKNOWN but a person box exists,
             # use the box aspect ratio. Tall = upright, wide = lying.
             if primary_person is not None and pose_state.posture.value == "unknown":
@@ -778,9 +827,24 @@ def main() -> None:
                 )
                 if args.web:
                     fps_now = 1.0 / dt if dt > 0 else 0.0
+                    # In baby mode, the simplified 5-state activity from the
+                    # tracker is what the dashboard / timeline cares about.
+                    activity_value = (
+                        baby_tracker.activity if baby_tracker is not None
+                        else pose_state.activity
+                    )
                     web_state = {
                         "state": state.value,
-                        "activity": pose_state.activity,
+                        "activity": activity_value,
+                        "camera_type": camera_type,
+                        "baby_lock": (
+                            None if baby_lock is None else {
+                                "box": [baby_lock.x1, baby_lock.y1, baby_lock.x2, baby_lock.y2],
+                                "confidence": baby_lock.confidence,
+                                "age_s": baby_lock.age_s,
+                                "age_since_seen_s": baby_lock.age_since_seen_s,
+                            }
+                        ),
                         "posture": pose_state.posture.value,
                         "motion": pose_state.motion.value,
                         "motion_score": float(pose_state.motion_score),
