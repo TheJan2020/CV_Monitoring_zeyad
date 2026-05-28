@@ -112,7 +112,16 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.cam-actions .link {
+  flex-shrink: 0;
+}
+
+.cam-actions .btn-danger {
+  margin-left: auto;
 }
 
 .link {
