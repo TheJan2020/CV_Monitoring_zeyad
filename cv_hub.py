@@ -81,6 +81,37 @@ DEFAULT_THRESHOLDS = {
     "mouse":    0.40,
 }
 
+# Per-camera detection-class toggles (which models / passes to run + show)
+DETECTION_KEYS = ["person", "pose", "phone", "laptop", "keyboard", "mouse", "extra_tools"]
+DETECTION_LABELS = {
+    "person":      "Person (bounding box)",
+    "pose":        "Pose (skeleton)",
+    "phone":       "Phone",
+    "laptop":      "Laptop",
+    "keyboard":    "Keyboard",
+    "mouse":       "Mouse",
+    "extra_tools": "Other COCO objects (bottle, book, cup, …)",
+}
+DETECTION_ENV_MAP = {
+    "person":      "USE_YOLO_PEOPLE_PASS",
+    "pose":        "USE_POSE",
+    "phone":       "USE_YOLO_PHONE_PASS",
+    "laptop":      "USE_YOLO_LAPTOP_PASS",
+    "keyboard":    "USE_YOLO_KEYBOARD_PASS",
+    "mouse":       "USE_YOLO_MOUSE_PASS",
+    "extra_tools": "SHOW_ALL_TOOLS",
+}
+DEFAULT_DETECTIONS = {
+    "person":      True,
+    "pose":        True,
+    "phone":       True,
+    "laptop":      True,
+    "keyboard":    True,
+    "mouse":       True,
+    "extra_tools": False,   # off by default to cut visual clutter
+}
+_DEVICE_KEYS = ("phone", "laptop", "keyboard", "mouse")
+
 
 class CameraSubprocess:
     """One workbench_activity.py subprocess + lifecycle."""
@@ -116,6 +147,13 @@ class CameraSubprocess:
             v = thresholds.get(key)
             if v is not None and v != "":
                 env[env_var] = str(v)
+        # Per-camera detection-class toggles (which detectors to even run)
+        detections = self.config.get("detections") or {}
+        merged_det = {**DEFAULT_DETECTIONS, **{k: bool(v) for k, v in detections.items() if k in DEFAULT_DETECTIONS}}
+        for key, env_var in DETECTION_ENV_MAP.items():
+            env[env_var] = "1" if merged_det.get(key, DEFAULT_DETECTIONS[key]) else "0"
+        # The devices pass is a parent flag — auto-on if any device class is on
+        env["USE_YOLO_DEVICES_PASS"] = "1" if any(merged_det.get(k, True) for k in _DEVICE_KEYS) else "0"
         args = [
             _PY, "-u", "workbench_activity.py",
             "--web", "--no-show",
@@ -494,6 +532,14 @@ input:focus, select:focus { outline:none; border-color:#5ad6e0; }
 .roi-coord { display:flex; align-items:center; gap:8px; }
 .roi-coord label { width:24px; color:#9aa; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
 .roi-coord input { flex:1; }
+.det-toggles { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:6px 14px; }
+.det-toggle { display:flex; align-items:center; gap:10px; padding:9px 12px; background:#262629; border-radius:6px; cursor:pointer; user-select:none; border:1px solid transparent; }
+.det-toggle:hover { border-color:#3f3f44; }
+.det-toggle input { width:16px; height:16px; accent-color:#5ad6e0; flex:0 0 auto; cursor:pointer; }
+.det-toggle .lbl { display:flex; flex-direction:column; min-width:0; }
+.det-toggle .lbl b { color:#fff; font-size:13px; font-weight:500; }
+.det-toggle .lbl .muted { color:#9aa; font-size:10px; margin-top:1px; }
+.det-toggle .lbl code { color:#5ad6e0; font-size:10px; }
 </style></head><body>
 <header>
   <h1>CV Hub</h1>
@@ -538,6 +584,26 @@ input:focus, select:focus { outline:none; border-color:#5ad6e0; }
           <button type="button" class="btn sec" id="roi-reset">Reset to full frame</button>
           <button type="button" class="btn sec" id="roi-refresh">Refresh snapshot</button>
         </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Detections (what to look for)</h2>
+      <p class="desc">Turn off whatever you don't want drawn on this camera. Disabled classes skip their YOLO model pass entirely (faster inference + less clutter on screen).</p>
+      <div class="det-toggles">
+        {% for key in detection_keys %}
+        <label class="det-toggle">
+          <input type="checkbox" data-dkey="{{ key }}"
+            {% set explicit = cam.detections is mapping and key in cam.detections %}
+            {% if explicit and cam.detections[key] %}checked
+            {% elif not explicit and detection_defaults[key] %}checked
+            {% endif %}>
+          <span class="lbl">
+            <b>{{ detection_labels[key] }}</b>
+            <span class="muted"><code>{{ key }}</code></span>
+          </span>
+        </label>
+        {% endfor %}
       </div>
     </section>
 
@@ -726,6 +792,10 @@ document.getElementById('cam-form').addEventListener('submit', async (e) => {
     document.querySelectorAll('input[type=number][data-tkey-num]').forEach(el => {
       thresholds[el.dataset.tkeyNum] = parseFloat(el.value);
     });
+    const detections = {};
+    document.querySelectorAll('input[type=checkbox][data-dkey]').forEach(el => {
+      detections[el.dataset.dkey] = el.checked;
+    });
     const body = {
       name: fd.get('name').trim(),
       rtsp_url: fd.get('rtsp_url').trim(),
@@ -733,6 +803,7 @@ document.getElementById('cam-form').addEventListener('submit', async (e) => {
       enabled: fd.get('enabled') === 'true',
       roi: roi,
       thresholds: thresholds,
+      detections: detections,
     };
     const r = await fetch('/api/cameras/' + camId, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const data = await r.json();
@@ -986,6 +1057,9 @@ def settings_camera(cam_id):
         cam=cam,
         defaults=DEFAULT_THRESHOLDS,
         threshold_keys=list(THRESHOLD_ENV_MAP.keys()),
+        detection_keys=DETECTION_KEYS,
+        detection_labels=DETECTION_LABELS,
+        detection_defaults=DEFAULT_DETECTIONS,
         user=session.get("user", ""),
     )
 
@@ -1014,6 +1088,7 @@ def api_create_camera():
         "port": int(data["port"]) if "port" in data and data["port"] is not None else next_free_port(),
         "enabled": bool(data.get("enabled", True)),
         "thresholds": data.get("thresholds") or dict(DEFAULT_THRESHOLDS),
+        "detections": data.get("detections") or dict(DEFAULT_DETECTIONS),
     }
     if not cam["rtsp_url"]:
         return jsonify({"error": "rtsp_url is required"}), 400
@@ -1029,7 +1104,7 @@ def api_update_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     merged = dict(existing)
-    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds"):
+    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections"):
         if k in data:
             merged[k] = data[k]
     if "port" in data and data["port"] is not None:
