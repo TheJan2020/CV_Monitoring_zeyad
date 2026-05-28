@@ -167,6 +167,9 @@ BABY_DEFAULTS = {
         "motion_still":  0.04,
         "motion_active": 0.20,
     },
+    "audio_enabled": True,
+    "audio_url": "",  # blank = use rtsp_url. Override when the sub stream is
+                      # video-only and audio lives on the main stream URL.
 }
 
 
@@ -890,6 +893,20 @@ input:focus, select:focus { outline:none; border-color:#5ad6e0; }
     </section>
 
     <section>
+      <h2>Audio</h2>
+      <p class="desc">Capture audio from the camera's RTSP stream and play it in the browser on the per-camera page. ffmpeg demuxes the audio track and re-encodes to MP3 for browser playback.</p>
+      <div class="form-grid">
+        <div><label>Audio enabled</label><select name="audio_enabled">
+          <option value="true" {% if cam.audio_enabled %}selected{% endif %}>yes</option>
+          <option value="false" {% if not cam.audio_enabled %}selected{% endif %}>no</option>
+        </select></div>
+        <div class="full"><label>Audio RTSP URL <span class="muted">(blank = use the video URL above; useful when audio is only on the main stream while video is on sub)</span></label>
+          <input name="audio_url" value="{{ cam.audio_url or '' }}" placeholder="rtsp://admin:password@host:554/Preview_01_main">
+        </div>
+      </div>
+    </section>
+
+    <section>
       <h2>Region of interest (ROI)</h2>
       <p class="desc">Drag on the snapshot to draw the detection region. Outside the rectangle is ignored. Numbers are normalized (0–1).</p>
       <div class="roi-editor">
@@ -1150,6 +1167,8 @@ document.getElementById('cam-form').addEventListener('submit', async (e) => {
       thresholds: thresholds,
       detections: detections,
       pose_state: poseState,
+      audio_enabled: fd.get('audio_enabled') === 'true',
+      audio_url: (fd.get('audio_url') || '').trim(),
     };
     const r = await fetch('/api/cameras/' + camId, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const data = await r.json();
@@ -1332,10 +1351,13 @@ CAMERA_DETAIL_HTML = """
 <title>{{ cam.name }} — CV Hub</title>
 <style>
 body { margin:0; padding:0; background:#111; height:100vh; display:flex; flex-direction:column; color:#ddd; font-family:-apple-system,Segoe UI,sans-serif; }
-.bar { background:#1b1b1f; padding:10px 16px; display:flex; gap:14px; align-items:center; border-bottom:1px solid #262629; }
+.bar { background:#1b1b1f; padding:10px 16px; display:flex; gap:14px; align-items:center; border-bottom:1px solid #262629; flex-wrap:wrap; }
 .bar a { color:#5ad6e0; text-decoration:none; font-size:13px; }
 .bar h2 { margin:0; font-size:15px; font-weight:600; color:#fff; }
-.bar .sub { color:#778; font-size:12px; margin-left:auto; }
+.bar .sub { color:#778; font-size:12px; }
+.bar .audio-wrap { margin-left:auto; display:flex; align-items:center; gap:8px; }
+.bar audio { height:32px; }
+.bar .audio-label { color:#9aa; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
 iframe { flex:1; border:0; width:100%; background:#000; }
 </style>
 </head>
@@ -1344,6 +1366,14 @@ iframe { flex:1; border:0; width:100%; background:#000; }
   <a href="/">← all cameras</a>
   <h2>{{ cam.name }}</h2>
   <span class="sub">port {{ cam.port }} • {{ cam.rtsp_url_masked }}</span>
+  {% if cam.audio_enabled %}
+  <div class="audio-wrap">
+    <span class="audio-label">🔊 audio</span>
+    <audio controls preload="none">
+      <source src="/api/audio/{{ cam.id }}" type="audio/mpeg">
+    </audio>
+  </div>
+  {% endif %}
 </div>
 <iframe src="http://{{ host }}:{{ cam.port }}/"></iframe>
 </body>
@@ -1455,6 +1485,8 @@ def api_create_camera():
         "thresholds": data.get("thresholds") or type_defaults["thresholds"],
         "detections": data.get("detections") or type_defaults["detections"],
         "pose_state": data.get("pose_state") or type_defaults["pose_state"],
+        "audio_enabled": bool(data.get("audio_enabled", cam_type == "baby")),
+        "audio_url": (data.get("audio_url") or "").strip(),
     }
     if not cam["rtsp_url"]:
         return jsonify({"error": "rtsp_url is required"}), 400
@@ -1470,7 +1502,7 @@ def api_update_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     merged = dict(existing)
-    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections", "pose_state", "type"):
+    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections", "pose_state", "type", "audio_enabled", "audio_url"):
         if k in data:
             merged[k] = data[k]
     if "port" in data and data["port"] is not None:
@@ -1570,6 +1602,72 @@ def timeline_page(cam_id):
     day = request.args.get("date") or datetime.now().strftime("%Y-%m-%d")
     return render_template_string(
         TIMELINE_HTML, cam=cam, day=day, user=session.get("user", ""),
+    )
+
+
+@app.route("/api/audio/<cam_id>")
+def api_audio(cam_id):
+    cam = get_camera(cam_id)
+    if cam is None:
+        return Response("camera not found", status=404)
+    if not cam.get("audio_enabled", cam.get("type") == "baby"):
+        return Response("audio disabled for this camera", status=403)
+    src = (cam.get("audio_url") or "").strip() or (cam.get("rtsp_url") or "").strip()
+    if not src:
+        return Response("no audio source", status=400)
+
+    # Locate ffmpeg — prefer the imageio-ffmpeg bundled binary so we don't
+    # depend on a system install. Falls back to PATH lookup if missing.
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+        ffmpeg = get_ffmpeg_exe()
+    except Exception:
+        ffmpeg = "ffmpeg"
+
+    cmd = [
+        ffmpeg,
+        "-rtsp_transport", "tcp",
+        "-fflags", "nobuffer",
+        "-i", src,
+        "-vn",
+        "-ac", "1",
+        "-ar", "22050",
+        "-acodec", "libmp3lame",
+        "-b:a", "48k",
+        "-flush_packets", "1",
+        "-f", "mp3",
+        "-loglevel", "error",
+        "-",
+    ]
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            bufsize=0,
+        )
+    except FileNotFoundError:
+        return Response("ffmpeg not found on the GPU box", status=500)
+
+    def gen():
+        try:
+            while True:
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+    return Response(
+        gen(),
+        mimetype="audio/mpeg",
+        headers={"Cache-Control": "no-cache, no-store", "X-Content-Type-Options": "nosniff"},
     )
 
 

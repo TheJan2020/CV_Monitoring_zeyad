@@ -11,3 +11,7 @@ mediapipe==0.10.14
 
 # Step 3 — live web dashboard (workbench_activity.py --web)
 flask>=3.0.0
+
+# Step 4 — audio capture from RTSP (baby-monitor mode)
+# Bundles a ready-to-use ffmpeg binary so we don't need a separate system install.
+imageio-ffmpeg>=0.5.1
