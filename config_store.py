@@ -31,7 +31,8 @@ def _read(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig transparently strips BOM if present (Windows tools often add one)
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return default
 
