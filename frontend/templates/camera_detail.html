@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ camera.name }} — PrimeAnalyze{% endblock %}
+{% block page_title %}{{ camera.name }}{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='cameras.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='camera_detail.css') }}">
+
+<div class="cd-toolbar">
+  <a href="/cameras" class="link-back">← All cameras</a>
+  <div class="cd-toolbar-right">
+    <span class="badge badge-{{ camera.category }}">{{ camera.category|capitalize }} Camera</span>
+    <span class="muted">port {{ camera.port }}</span>
+  </div>
+</div>
+
+<div class="cd-grid">
+  <div class="cd-video-wrap">
+    <img id="live-stream" alt="{{ camera.name }} live feed"
+         src="http://{{ host }}:{{ camera.port }}/stream"
+         onerror="this.classList.add('stream-error')">
+    <div class="stream-overlay" id="stream-overlay">connecting to worker…</div>
+  </div>
+
+  <aside class="cd-panel">
+    <div class="cd-activity-block">
+      <div class="cd-activity-label">Current activity</div>
+      <div class="cd-activity" id="activity">…</div>
+      <div class="cd-activity-sub" id="activity-sub">waiting for first frame</div>
+    </div>
+
+    <div class="cd-stats">
+      <div class="cd-stat"><span class="cd-stat-k">Posture</span><span class="cd-stat-v" id="posture">—</span></div>
+      <div class="cd-stat"><span class="cd-stat-k">Motion</span><span class="cd-stat-v" id="motion">—</span></div>
+      <div class="cd-stat"><span class="cd-stat-k">Persons</span><span class="cd-stat-v" id="persons">—</span></div>
+      <div class="cd-stat"><span class="cd-stat-k">FPS</span><span class="cd-stat-v" id="fps">—</span></div>
+      <div class="cd-stat"><span class="cd-stat-k">Still for</span><span class="cd-stat-v" id="still">—</span></div>
+      <div class="cd-stat"><span class="cd-stat-k">Lock age</span><span class="cd-stat-v" id="lockage">—</span></div>
+    </div>
+
+    {% if camera.audio_enabled %}
+    <div class="cd-audio">
+      <div class="cd-audio-label">🔊 Live audio</div>
+      <audio controls preload="none">
+        <source src="http://{{ host }}:{{ hub_port }}/api/audio/{{ camera.id }}" type="audio/mpeg">
+      </audio>
+    </div>
+    {% endif %}
+
+    <div class="cd-meta">
+      <div class="cd-meta-row"><span>Source</span><code>{{ camera.rtsp_url_masked }}</code></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const camId = "{{ camera.id }}";
+
+const ACTIVITY_LABEL = {
+  asleep: "Asleep", lying: "Lying", sitting: "Sitting",
+  moving_a_lot: "Moving a lot", out_of_frame: "Out of frame",
+  resting: "Resting", fidgeting: "Fidgeting", restless: "Restless",
+  sitting_calm: "Sitting calm", playing: "Playing", very_active: "Very active",
+  standing: "Standing", walking: "Walking", running: "Running",
+  uncertain: "Uncertain",
+};
+
+function fmtSec(s) {
+  s = Math.max(0, Math.round(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/cameras/" + camId + "/state", {cache:"no-store"});
+    if (!r.ok) return;
+    const s = await r.json();
+
+    const act = s.activity || "out_of_frame";
+    const actEl = document.getElementById("activity");
+    actEl.className = "cd-activity act-" + act;
+    actEl.textContent = ACTIVITY_LABEL[act] || act.replace(/_/g, " ");
+
+    let sub = "";
+    if (act === "asleep") sub = `lying still for ${fmtSec(s.still_seconds)}`;
+    else if (act === "lying") sub = "lying down — needs more stillness for asleep";
+    else if (act === "sitting") sub = "upright, calm";
+    else if (act === "moving_a_lot") sub = "high motion or upright movement";
+    else if (act === "out_of_frame") sub = "no detection";
+    document.getElementById("activity-sub").textContent = sub;
+
+    document.getElementById("posture").textContent = s.posture || "—";
+    document.getElementById("motion").textContent = s.motion || "—";
+    document.getElementById("persons").textContent = s.person_count ?? 0;
+    document.getElementById("fps").textContent = (s.fps || 0).toFixed(1);
+    document.getElementById("still").textContent = fmtSec(s.still_seconds);
+    const lockAge = s.baby_lock?.age_s;
+    document.getElementById("lockage").textContent =
+      lockAge != null ? fmtSec(lockAge) : "—";
+
+    document.getElementById("stream-overlay").style.display = "none";
+  } catch (e) { /* ignore */ }
+}
+poll();
+setInterval(poll, 800);
+</script>
+{% endblock %}

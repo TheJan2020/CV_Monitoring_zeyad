@@ -69,7 +69,7 @@ function cardHtml(c) {
       </div>
       <div class="cam-url" title="${escapeAttr(c.rtsp_url)}">${escapeHtml(maskRtsp(c.rtsp_url))}</div>
       <div class="cam-actions">
-        <a class="link" href="http://${location.hostname}:8000/camera/${c.id}" target="_blank" rel="noopener">Open live ↗</a>
+        <a class="link" href="/cameras/${c.id}">Open live ›</a>
         <button class="btn btn-ghost btn-danger" data-delete="${c.id}" data-name="${escapeAttr(c.name)}">Remove</button>
       </div>
     </div>`;

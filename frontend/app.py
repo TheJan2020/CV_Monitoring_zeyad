@@ -120,6 +120,43 @@ def cameras_page():
     )
 
 
+@app.route("/cameras/<cam_id>")
+def camera_detail(cam_id):
+    cam = hub_client.get_camera(cam_id)
+    if not cam:
+        return redirect(url_for("cameras_page"))
+    cam_type = cam.get("type", "general")
+    return render_template(
+        "camera_detail.html",
+        user=session["user"],
+        active="cameras",
+        host=request.host.split(":")[0],
+        # Audio + hub-side detail-page URLs live on port 8000.
+        hub_port=8000,
+        camera={
+            "id": cam.get("id"),
+            "name": cam.get("name"),
+            "category": TYPE_TO_CATEGORY.get(cam_type, "worker"),
+            "type": cam_type,
+            "rtsp_url_masked": _mask_rtsp(cam.get("rtsp_url", "")),
+            "port": cam.get("port"),
+            "enabled": cam.get("enabled", True),
+            "audio_enabled": bool(cam.get("audio_enabled", cam_type == "baby")),
+        },
+    )
+
+
+def _mask_rtsp(url: str) -> str:
+    if "://" not in url or "@" not in url:
+        return url
+    head, tail = url.split("://", 1)
+    creds, rest = tail.split("@", 1)
+    if ":" in creds:
+        user = creds.split(":", 1)[0]
+        return f"{head}://{user}:•••@{rest}"
+    return url
+
+
 # ---- Hub-backed camera API (proxies, with category mapping) ----
 
 @app.route("/api/cameras", methods=["GET"])
