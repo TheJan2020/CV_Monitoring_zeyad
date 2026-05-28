@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
@@ -81,8 +81,10 @@ class PoseStateTracker:
         *,
         history_seconds: float = 3.0,
         still_for_sleep_s: float = 30.0,
-        motion_still_norm: float = 0.003,
-        motion_active_norm: float = 0.015,
+        # Thresholds are now FRACTION OF FRAME HEIGHT PER SECOND (was per-frame).
+        # 0.03 / sec ≈ 0.3% / frame at 10 FPS — matches the previous per-frame value.
+        motion_still_norm: float = 0.03,
+        motion_active_norm: float = 0.15,
         hold_seconds: float = 8.0,
     ) -> None:
         self.history_seconds = history_seconds
@@ -122,13 +124,25 @@ class PoseStateTracker:
 
         if keypoints_xy is None or keypoints_conf is None or frame_h <= 0:
             # Subject momentarily lost. If we had a valid state within the
-            # hold window, carry it forward so the UI / recorder don't see
-            # transient flicker. Past that, fall back to out_of_frame.
+            # hold window, carry it forward — and if we believed they were
+            # still, keep accruing still_seconds so the asleep classifier
+            # can actually fire across detection gaps.
             if (
                 self._last_valid_t is not None
                 and (self._t - self._last_valid_t) < self.hold_seconds
                 and self.state.activity != "out_of_frame"
             ):
+                if (
+                    self.state.motion == Motion.STILL
+                    and self._still_since is not None
+                ):
+                    new_still = self._t - self._still_since
+                    new_activity = self._activity(
+                        self.state.posture, self.state.motion, new_still
+                    )
+                    self.state = replace(
+                        self.state, still_seconds=new_still, activity=new_activity
+                    )
                 return self.state
             self._buf.clear()
             self._still_since = None
@@ -198,11 +212,18 @@ class PoseStateTracker:
         return Posture.UPRIGHT, angle
 
     def _motion_score(self, frame_h: int) -> float:
+        """Mean keypoint speed across the rolling buffer, normalised by frame
+        height. Returns fraction of frame height **per second** (was per
+        frame previously), so a 3-s detection gap with a small position
+        shift correctly reads as low speed instead of one giant 'jump'."""
         buf = list(self._buf)
         if len(buf) < 2:
             return 0.0
-        pair_means: list[float] = []
-        for (_, xy_a, conf_a), (_, xy_b, conf_b) in zip(buf, buf[1:]):
+        pair_rates: list[float] = []
+        for (t_a, xy_a, conf_a), (t_b, xy_b, conf_b) in zip(buf, buf[1:]):
+            dt_pair = t_b - t_a
+            if dt_pair <= 0:
+                continue
             ds: list[float] = []
             n = min(len(xy_a), len(xy_b), len(conf_a), len(conf_b))
             for i in range(n):
@@ -212,11 +233,12 @@ class PoseStateTracker:
                 dy = float(xy_a[i][1]) - float(xy_b[i][1])
                 ds.append(math.hypot(dx, dy))
             if ds:
-                pair_means.append(sum(ds) / len(ds))
-        if not pair_means:
+                avg_per_pair_px = sum(ds) / len(ds)
+                pair_rates.append(avg_per_pair_px / dt_pair)
+        if not pair_rates:
             return 0.0
-        avg_per_frame_px = sum(pair_means) / len(pair_means)
-        return avg_per_frame_px / max(1, frame_h)
+        avg_rate_per_sec = sum(pair_rates) / len(pair_rates)
+        return avg_rate_per_sec / max(1, frame_h)
 
     def _classify_motion(self, norm: float) -> Motion:
         if norm <= 0.0 and len(self._buf) < 2:
