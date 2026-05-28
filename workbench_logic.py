@@ -1653,8 +1653,14 @@ def collect_yolo_pose_persons(
     box_conf: float = 0.25,
     kpt_conf_min: float = 0.25,
     max_persons: int = 8,
+    roi: BenchROI | None = None,
 ) -> list[PersonPose]:
-    """Parse YOLO11-pose results into PersonPose list (multi-person skeletons)."""
+    """Parse YOLO11-pose results into PersonPose list (multi-person skeletons).
+
+    When `roi` is set and not full-frame, skeletons whose bounding-box
+    center falls outside the ROI are dropped (so the activity classifier
+    doesn't lock onto a person standing next to the crib).
+    """
     if not pose_results:
         return []
     r = pose_results[0]
@@ -1663,12 +1669,18 @@ def collect_yolo_pose_persons(
     boxes = r.boxes
     kpts = r.keypoints
     ranked: list[tuple[float, int]] = []
+    roi_active = roi is not None and not roi.is_full_frame()
     for i in range(len(boxes)):
         if int(boxes.cls[i]) != 0:
             continue
         if float(boxes.conf[i]) < box_conf:
             continue
         xyxy = boxes.xyxy[i].cpu().numpy()
+        if roi_active:
+            cx = float((xyxy[0] + xyxy[2]) / 2.0 / max(1, frame_w))
+            cy = float((xyxy[1] + xyxy[3]) / 2.0 / max(1, frame_h))
+            if not roi.contains(cx, cy):  # type: ignore[union-attr]
+                continue
         area = float((xyxy[2] - xyxy[0]) * (xyxy[3] - xyxy[1]))
         ranked.append((area, i))
     ranked.sort(key=lambda t: -t[0])
@@ -2137,7 +2149,19 @@ def _box_norm(box: Any, w: int, h: int) -> tuple[float, float, float, float]:
 
 
 def _overlaps_roi(nx1: float, ny1: float, nx2: float, ny2: float, roi: BenchROI) -> bool:
-    """True if bbox intersects the bench ROI (not only center point)."""
+    """True if bbox is inside the ROI.
+
+    Polygon ROI: tests the bbox center via point-in-polygon (matches what
+    most operators expect — "is the thing in my region?"). This used to
+    ignore the polygon entirely and only check the rectangle bounding box,
+    so detections outside the polygon were still flagged as in_roi.
+
+    Rectangle ROI: bbox overlap (preserved for backwards compat).
+    """
+    if roi.is_polygon():
+        cx = (nx1 + nx2) / 2.0
+        cy = (ny1 + ny2) / 2.0
+        return roi.contains(cx, cy)
     ix1 = max(roi.x1, nx1)
     iy1 = max(roi.y1, ny1)
     ix2 = min(roi.x2, nx2)
@@ -2179,6 +2203,13 @@ def collect_yolo_detections(
         cy = (py1 + py2) / 2 / fh
         nx1, ny1, nx2, ny2 = px1 / fw, py1 / fh, px2 / fw, py2 / fh
         in_roi = _overlaps_roi(nx1, ny1, nx2, ny2, roi)
+        # ROI is a true filter: drop anything outside when an ROI is set
+        # (full-frame ROI keeps the previous behaviour of accepting all).
+        # This stops false-positive 'person' detections on tables, chair
+        # backs, blankets, etc. that fall outside the user-drawn region
+        # from polluting the pipeline and the on-screen overlay.
+        if not in_roi and not roi.is_full_frame():
+            continue
         near_hand = False
         if wrist_points:
             for wx, wy in wrist_points:

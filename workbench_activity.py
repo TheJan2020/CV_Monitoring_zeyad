@@ -457,6 +457,7 @@ def main() -> None:
                     primary_person,
                     box_conf=get_yolo_pose_conf(),
                     max_persons=get_max_pose_persons(),
+                    roi=roi,
                 )
             elif use_yolo_people_pass() and mp_pose_inst is not None:
                 persons = [d for d in yolo_detections if d.name == "person"]
