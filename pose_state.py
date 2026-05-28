@@ -83,22 +83,31 @@ class PoseStateTracker:
         still_for_sleep_s: float = 30.0,
         motion_still_norm: float = 0.003,
         motion_active_norm: float = 0.015,
+        hold_seconds: float = 8.0,
     ) -> None:
         self.history_seconds = history_seconds
         self.still_for_sleep_s = still_for_sleep_s
         self.motion_still_norm = motion_still_norm
         self.motion_active_norm = motion_active_norm
+        # When YOLO temporarily loses the subject (occluded by crib bar /
+        # blanket / etc.), keep the previously classified state for up to
+        # this many seconds before flipping to out_of_frame. Cuts on/off
+        # flicker that's especially common with small / partially-visible
+        # subjects like a baby in a crib.
+        self.hold_seconds = hold_seconds
 
         self._buf: deque[tuple[float, Any, Any]] = deque()
         self._t: float = 0.0
         self._still_since: float | None = None
         self._prev_motion: Motion = Motion.UNKNOWN
+        self._last_valid_t: float | None = None
         self.state = PoseState()
 
     def reset(self) -> None:
         self._buf.clear()
         self._still_since = None
         self._prev_motion = Motion.UNKNOWN
+        self._last_valid_t = None
         self.state = PoseState()
 
     def update(
@@ -112,7 +121,15 @@ class PoseStateTracker:
         self._t += max(0.0, dt)
 
         if keypoints_xy is None or keypoints_conf is None or frame_h <= 0:
-            # Subject not visible — clear state and report
+            # Subject momentarily lost. If we had a valid state within the
+            # hold window, carry it forward so the UI / recorder don't see
+            # transient flicker. Past that, fall back to out_of_frame.
+            if (
+                self._last_valid_t is not None
+                and (self._t - self._last_valid_t) < self.hold_seconds
+                and self.state.activity != "out_of_frame"
+            ):
+                return self.state
             self._buf.clear()
             self._still_since = None
             self._prev_motion = Motion.UNKNOWN
@@ -144,6 +161,7 @@ class PoseStateTracker:
             still_seconds=still_seconds,
             posture_angle_deg=angle,
         )
+        self._last_valid_t = self._t
         return self.state
 
     # ---- internal -------------------------------------------------------
