@@ -461,6 +461,30 @@ def main() -> None:
                     merge_pose_into_score(fs, pose_fs)
                     pose_wrists = wrists_from_pose_landmarks(primary_pose.landmarks)
 
+            # Synthesize person box(es) from skeleton when YOLO person pass missed.
+            # The pose model uses a lower confidence threshold and often finds
+            # partial bodies the box detector rejects — without this, persons=0
+            # while skeleton renders on screen.
+            if n_persons == 0 and person_poses:
+                from workbench_logic import synthesize_person_from_pose
+                synthesized = False
+                for pp in person_poses:
+                    synth = synthesize_person_from_pose(pp, fw, fh)
+                    if synth is None:
+                        continue
+                    yolo_detections.append(synth)
+                    synthesized = True
+                    if primary_person is None and synth.is_primary:
+                        primary_person = synth
+                if synthesized:
+                    n_persons = count_person_detections(yolo_detections)
+                    if primary_person is None:
+                        for d in yolo_detections:
+                            if d.name == "person":
+                                d.is_primary = True
+                                primary_person = d
+                                break
+
             if primary_pose is not None and primary_pose.keypoints_xy is not None:
                 pose_state = pose_state_tracker.update(
                     primary_pose.keypoints_xy,

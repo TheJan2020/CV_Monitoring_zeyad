@@ -1779,6 +1779,57 @@ def count_person_detections(detections: list[YoloDetection]) -> int:
     return sum(1 for d in detections if d.name == "person")
 
 
+def synthesize_person_from_pose(
+    pose: "PersonPose",
+    frame_w: int,
+    frame_h: int,
+    *,
+    kp_conf_min: float = 0.30,
+    pad_frac: float = 0.10,
+) -> "YoloDetection | None":
+    """Build a synthetic person YoloDetection from pose keypoints.
+
+    Used when the YOLO pose model returns a skeleton but the YOLO person
+    detector missed the bounding box — without this, person_count and
+    downstream scoring stay zero while the skeleton is visible on screen.
+    """
+    if pose.keypoints_xy is None or pose.keypoints_conf is None:
+        return None
+    xs: list[float] = []
+    ys: list[float] = []
+    for i in range(min(len(pose.keypoints_conf), len(pose.keypoints_xy))):
+        if float(pose.keypoints_conf[i]) < kp_conf_min:
+            continue
+        xs.append(float(pose.keypoints_xy[i][0]))
+        ys.append(float(pose.keypoints_xy[i][1]))
+    if len(xs) < 3:
+        return None
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    box_w = max(1.0, x_max - x_min)
+    box_h = max(1.0, y_max - y_min)
+    pad_x = box_w * pad_frac
+    pad_y = box_h * pad_frac
+    x1 = max(0, int(x_min - pad_x))
+    y1 = max(0, int(y_min - pad_y))
+    x2 = min(frame_w, int(x_max + pad_x))
+    y2 = min(frame_h, int(y_max + pad_y))
+    if (x2 - x1) < 16 or (y2 - y1) < 16:
+        return None
+    return YoloDetection(
+        name="person",
+        confidence=0.50,
+        x1=x1, y1=y1, x2=x2, y2=y2,
+        in_roi=True,
+        near_hand=False,
+        role="person",
+        inside_person=False,
+        is_primary=bool(pose.is_primary),
+        stable=False,
+        stable_age_s=0.0,
+    )
+
+
 def _center_in_box(
     det: YoloDetection, box: YoloDetection, frame_w: int, frame_h: int
 ) -> bool:
