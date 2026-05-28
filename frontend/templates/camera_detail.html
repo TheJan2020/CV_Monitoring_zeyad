@@ -10,6 +10,7 @@
   <a href="/cameras" class="link-back">← All cameras</a>
   <div class="cd-toolbar-right">
     <span class="badge badge-{{ camera.category }}">{{ camera.category|capitalize }} Camera</span>
+    <a href="/cameras/{{ camera.id }}/configure" class="link">Edit region ›</a>
     <span class="muted">port {{ camera.port }}</span>
   </div>
 </div>

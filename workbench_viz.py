@@ -129,10 +129,26 @@ def draw_explain_overlay(
     h, w = out.shape[:2]
     rx1, ry1, rx2, ry2 = roi.as_pixels(w, h)
 
-    # --- ROI (full frame = label only, no big yellow box) ---
+    # --- ROI (full frame = label only) ---
+    roi_poly_px = roi.polygon_pixels(w, h)
     if minimal:
-        if not roi.is_full_frame():
+        if roi_poly_px is not None:
+            pts = np.array([roi_poly_px], dtype=np.int32)
+            cv2.polylines(out, pts, isClosed=True, color=C_ROI, thickness=1)
+        elif not roi.is_full_frame():
             cv2.rectangle(out, (rx1, ry1), (rx2, ry2), C_ROI, 1)
+    elif roi_poly_px is not None:
+        pts = np.array([roi_poly_px], dtype=np.int32)
+        cv2.polylines(out, pts, isClosed=True, color=C_ROI, thickness=2)
+        cv2.putText(
+            out,
+            "ROI polygon",
+            (roi_poly_px[0][0] + 4, max(roi_poly_px[0][1] - 6, 14)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            C_ROI,
+            1,
+        )
     elif roi.is_full_frame():
         cv2.putText(
             out,

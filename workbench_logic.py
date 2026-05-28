@@ -135,28 +135,70 @@ class ActivityState(str, Enum):
     WORKING = "working"
 
 
+def _point_in_polygon(x: float, y: float, points: list[tuple[float, float]]) -> bool:
+    """Ray-casting algorithm. Points are normalized (0..1)."""
+    n = len(points)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = points[i]
+        xj, yj = points[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
 @dataclass
 class BenchROI:
-    """Normalized rectangle (0–1): x1,y1 top-left, x2,y2 bottom-right."""
+    """Region of interest. Either a normalized rectangle (x1,y1,x2,y2) or
+    an ordered list of normalized polygon vertices (`points`). When both
+    are set, the polygon wins.
+    """
 
     x1: float = 0.0
     y1: float = 0.0
     x2: float = 1.0
     y2: float = 1.0
+    points: list[tuple[float, float]] | None = None
+
+    def is_polygon(self) -> bool:
+        return self.points is not None and len(self.points) >= 3
 
     def is_full_frame(self) -> bool:
+        if self.is_polygon():
+            xs = [p[0] for p in self.points]  # type: ignore[union-attr]
+            ys = [p[1] for p in self.points]  # type: ignore[union-attr]
+            return (
+                min(xs) <= 0.01 and min(ys) <= 0.01
+                and max(xs) >= 0.99 and max(ys) >= 0.99
+            )
         return self.x1 <= 0.01 and self.y1 <= 0.01 and self.x2 >= 0.99 and self.y2 >= 0.99
 
     def contains(self, x: float, y: float) -> bool:
+        if self.is_polygon():
+            return _point_in_polygon(x, y, self.points)  # type: ignore[arg-type]
         return self.x1 <= x <= self.x2 and self.y1 <= y <= self.y2
 
     def as_pixels(self, w: int, h: int) -> tuple[int, int, int, int]:
+        """Bounding box of the region in pixel coordinates."""
+        if self.is_polygon():
+            xs = [p[0] for p in self.points]  # type: ignore[union-attr]
+            ys = [p[1] for p in self.points]  # type: ignore[union-attr]
+            return (int(min(xs) * w), int(min(ys) * h),
+                    int(max(xs) * w), int(max(ys) * h))
         return (
             int(self.x1 * w),
             int(self.y1 * h),
             int(self.x2 * w),
             int(self.y2 * h),
         )
+
+    def polygon_pixels(self, w: int, h: int) -> list[tuple[int, int]] | None:
+        """Vertices in pixel coords, or None for a rectangle ROI."""
+        if not self.is_polygon():
+            return None
+        return [(int(p[0] * w), int(p[1] * h)) for p in self.points]  # type: ignore[union-attr]
 
 
 @dataclass

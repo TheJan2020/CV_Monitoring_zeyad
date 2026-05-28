@@ -198,6 +198,14 @@ class CameraSubprocess:
         env["VIDEO_SOURCE"] = self.config["rtsp_url"]
         roi = self.config.get("roi") or [0.0, 0.0, 1.0, 1.0]
         env["WORKBENCH_ROI"] = ",".join(str(v) for v in roi)
+        # Polygon ROI (takes precedence inside env_settings.get_workbench_roi
+        # when set). Format: JSON array of [x, y] pairs in normalized 0..1.
+        roi_poly = self.config.get("roi_polygon")
+        if isinstance(roi_poly, list) and len(roi_poly) >= 3:
+            import json as _json
+            env["WORKBENCH_ROI_POLY"] = _json.dumps(roi_poly)
+        else:
+            env.pop("WORKBENCH_ROI_POLY", None)
         env["FRIGATE_BASE_URL"] = ""   # ensure direct RTSP, not Frigate
         env["USE_FRIGATE_HTTP"] = "0"
         env["PYTHONUNBUFFERED"] = "1"
@@ -1486,6 +1494,7 @@ def api_create_camera():
         "name": (data.get("name") or cam_id).strip(),
         "rtsp_url": (data.get("rtsp_url") or "").strip(),
         "roi": data.get("roi") or [0, 0, 1, 1],
+        "roi_polygon": data.get("roi_polygon"),
         "port": int(data["port"]) if "port" in data and data["port"] is not None else next_free_port(),
         "enabled": bool(data.get("enabled", True)),
         "thresholds": data.get("thresholds") or type_defaults["thresholds"],
@@ -1508,7 +1517,7 @@ def api_update_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     merged = dict(existing)
-    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections", "pose_state", "type", "audio_enabled", "audio_url"):
+    for k in ("name", "rtsp_url", "roi", "roi_polygon", "enabled", "thresholds", "detections", "pose_state", "type", "audio_enabled", "audio_url"):
         if k in data:
             merged[k] = data[k]
     if "port" in data and data["port"] is not None:

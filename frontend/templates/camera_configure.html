@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ camera.name }} — Region — PrimeAnalyze{% endblock %}
+{% block page_title %}{{ camera.name }} · Region{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='camera_configure.css') }}">
+
+<div class="cfg-toolbar">
+  <a href="/cameras/{{ camera.id }}" class="link-back">← Back to live view</a>
+  <span class="badge badge-{{ camera.category }}">{{ camera.category|capitalize }} Camera</span>
+</div>
+
+<div class="cfg-grid">
+  <div class="cfg-canvas-wrap" id="canvas-wrap">
+    <img id="snap" alt="snapshot" draggable="false">
+    <canvas id="canvas"></canvas>
+    <div id="loading" class="snap-loading">loading snapshot…</div>
+  </div>
+
+  <aside class="cfg-panel">
+    <h2 class="cfg-title">Region of interest</h2>
+    <p class="cfg-help">
+      Draw the area where detection should run. Outside the shape is ignored.
+    </p>
+
+    <div class="cfg-mode">
+      <label class="cfg-radio">
+        <input type="radio" name="mode" value="polygon" id="mode-polygon" checked>
+        <span><b>Polygon</b> — click to add points, drag to move, right-click to delete</span>
+      </label>
+      <label class="cfg-radio">
+        <input type="radio" name="mode" value="rect" id="mode-rect">
+        <span><b>Rectangle</b> — drag two corners (legacy)</span>
+      </label>
+    </div>
+
+    <div class="cfg-actions">
+      <button class="btn btn-secondary" id="btn-reset">Reset to full frame</button>
+      <button class="btn btn-secondary" id="btn-clear">Clear all points</button>
+      <button class="btn btn-secondary" id="btn-refresh">Refresh snapshot</button>
+    </div>
+
+    <div class="cfg-points">
+      <div class="cfg-points-header">
+        <span class="cfg-stat-k">Points</span>
+        <span id="points-count">0</span>
+      </div>
+      <div id="points-list" class="cfg-points-list"></div>
+    </div>
+
+    <div class="cfg-status" id="status"></div>
+
+    <div class="cfg-save">
+      <button class="btn btn-primary" id="btn-save">Save & restart worker</button>
+    </div>
+  </aside>
+</div>
+
+<script>
+const camId = "{{ camera.id }}";
+const initialPoly = {{ camera.roi_polygon|tojson if camera.roi_polygon else 'null' }};
+const initialRect = {{ camera.roi|tojson }};
+</script>
+<script src="{{ url_for('static', filename='camera_configure.js') }}"></script>
+{% endblock %}

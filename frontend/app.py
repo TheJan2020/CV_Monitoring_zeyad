@@ -120,6 +120,26 @@ def cameras_page():
     )
 
 
+@app.route("/cameras/<cam_id>/configure")
+def camera_configure(cam_id):
+    cam = hub_client.get_camera(cam_id)
+    if not cam:
+        return redirect(url_for("cameras_page"))
+    cam_type = cam.get("type", "general")
+    return render_template(
+        "camera_configure.html",
+        user=session["user"],
+        active="cameras",
+        camera={
+            "id": cam.get("id"),
+            "name": cam.get("name"),
+            "category": TYPE_TO_CATEGORY.get(cam_type, "worker"),
+            "roi": cam.get("roi") or [0, 0, 1, 1],
+            "roi_polygon": cam.get("roi_polygon"),
+        },
+    )
+
+
 @app.route("/cameras/<cam_id>")
 def camera_detail(cam_id):
     cam = hub_client.get_camera(cam_id)
@@ -211,6 +231,36 @@ def api_create_camera():
     if 200 <= status < 300:
         return jsonify({"ok": True, "camera": resp})
     return jsonify({"error": resp.get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/cameras/<cam_id>", methods=["PATCH"])
+def api_patch_camera(cam_id):
+    body = request.get_json(silent=True) or {}
+    status, resp = hub_client.update_camera(cam_id, body)
+    if 200 <= status < 300:
+        return jsonify({"ok": True, "camera": resp})
+    return jsonify({"error": resp.get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/cameras/<cam_id>/snapshot")
+def api_camera_snapshot(cam_id):
+    """Proxy the hub's /api/snapshot/<id> so the editor canvas can fetch
+    same-origin (no CORS preflight)."""
+    from urllib.request import urlopen, Request
+    from urllib.error import URLError
+    from flask import Response, abort
+    cam = hub_client.get_camera(cam_id)
+    if not cam:
+        abort(404)
+    try:
+        req = Request(f"http://127.0.0.1:8000/api/snapshot/{cam_id}",
+                      headers={"User-Agent": "primeanalyze"})
+        with urlopen(req, timeout=5) as r:
+            data = r.read()
+        return Response(data, mimetype="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+    except URLError as e:
+        return jsonify({"error": str(e)}), 503
 
 
 @app.route("/api/cameras/<cam_id>", methods=["DELETE"])

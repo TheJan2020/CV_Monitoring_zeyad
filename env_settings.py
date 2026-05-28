@@ -485,6 +485,23 @@ def _float_env(name: str, default: float) -> float:
 
 def get_workbench_roi() -> "BenchROI":
     from workbench_logic import BenchROI
+    import json as _json
+
+    # Polygon takes precedence when set. Format: WORKBENCH_ROI_POLY is a JSON
+    # array of [x, y] pairs in normalized 0..1 coords.
+    poly_raw = (os.getenv("WORKBENCH_ROI_POLY") or "").strip()
+    if poly_raw:
+        try:
+            data = _json.loads(poly_raw)
+            if isinstance(data, list) and len(data) >= 3:
+                pts: list[tuple[float, float]] = []
+                for item in data:
+                    if not (isinstance(item, (list, tuple)) and len(item) >= 2):
+                        raise ValueError("polygon point must be [x, y]")
+                    pts.append((float(item[0]), float(item[1])))
+                return BenchROI(points=pts)
+        except (ValueError, _json.JSONDecodeError):
+            pass  # fall back to rectangle
 
     raw = (os.getenv("WORKBENCH_ROI") or "0,0,1,1").strip()
     parts = [p.strip() for p in raw.split(",")]
