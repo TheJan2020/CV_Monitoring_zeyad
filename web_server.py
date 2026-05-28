@@ -114,9 +114,6 @@ INDEX_HTML = """
     <div class="row"><b>Still for</b><span id="still">0.0s</span></div>
     <div class="row"><b>Body angle</b><span id="angle">0°</span></div>
 
-    <h1 style="margin-top:14px;">workbench state</h1>
-    <div id="state" class="state idle">—</div>
-
     <div class="row"><b>Persons</b><span id="persons">0</span></div>
     <div class="row"><b>Source</b><span id="source">—</span></div>
     <div class="row"><b>FPS</b><span id="fps">—</span></div>
@@ -148,15 +145,6 @@ async function tick() {
     const r = await fetch('/state', {cache:'no-store'});
     if (!r.ok) return;
     const s = await r.json();
-    const stateEl = document.getElementById('state');
-    let cls = 'idle';
-    let label = (s.state || 'idle').toUpperCase();
-    if (s.on_phone || s.phone_near_hand) { cls='phone'; label='PHONE'; }
-    else if (s.state === 'working') { cls='working'; }
-    else if (s.state === 'present') { cls='present'; }
-    stateEl.className = 'state ' + cls;
-    stateEl.textContent = label;
-
     // Pose-state activity (baby monitor block)
     const act = s.activity || 'out_of_frame';
     const activityEl = document.getElementById('activity');
