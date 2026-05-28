@@ -450,6 +450,29 @@ def show_explain_overlay() -> bool:
     return _use_env_flag("SHOW_EXPLAIN_OVERLAY", default_on=True)
 
 
+# Per-camera PoseStateTracker tunables (override defaults baked into pose_state.py).
+
+def get_pose_sleep_seconds() -> float:
+    """Seconds the subject must stay still before activity flips to 'asleep'."""
+    return _float_env("POSE_STILL_FOR_SLEEP_S", 30.0)
+
+
+def get_pose_hold_seconds() -> float:
+    """Seconds to hold the last classified activity when YOLO momentarily
+    loses the subject, before reporting out_of_frame."""
+    return _float_env("POSE_HOLD_SECONDS", 8.0)
+
+
+def get_pose_motion_still() -> float:
+    """Frame-height fraction per second below which motion counts as 'still'."""
+    return _float_env("POSE_MOTION_STILL_NORM", 0.03)
+
+
+def get_pose_motion_active() -> float:
+    """Frame-height fraction per second above which motion counts as 'active'."""
+    return _float_env("POSE_MOTION_ACTIVE_NORM", 0.15)
+
+
 def _float_env(name: str, default: float) -> float:
     raw = (os.getenv(name) or "").strip()
     if not raw:

@@ -119,6 +119,33 @@ DEFAULT_DETECTIONS = {
 }
 _DEVICE_KEYS = ("phone", "laptop", "keyboard", "mouse")
 
+# Per-camera activity-classifier tunables (PoseStateTracker overrides)
+POSE_STATE_KEYS = ["sleep_seconds", "hold_seconds", "motion_still", "motion_active"]
+POSE_STATE_LABELS = {
+    "sleep_seconds": "Sleep threshold (seconds still before 'asleep')",
+    "hold_seconds":  "Detection hold (seconds to keep last activity if subject vanishes)",
+    "motion_still":  "Motion 'still' floor (frac frame height per second)",
+    "motion_active": "Motion 'active' floor (frac frame height per second)",
+}
+POSE_STATE_ENV_MAP = {
+    "sleep_seconds": "POSE_STILL_FOR_SLEEP_S",
+    "hold_seconds":  "POSE_HOLD_SECONDS",
+    "motion_still":  "POSE_MOTION_STILL_NORM",
+    "motion_active": "POSE_MOTION_ACTIVE_NORM",
+}
+DEFAULT_POSE_STATE = {
+    "sleep_seconds": 30.0,
+    "hold_seconds":  8.0,
+    "motion_still":  0.03,
+    "motion_active": 0.15,
+}
+POSE_STATE_INPUT_HINTS = {
+    "sleep_seconds": {"min": 1,     "max": 600,  "step": 1},
+    "hold_seconds":  {"min": 0,     "max": 30,   "step": 0.5},
+    "motion_still":  {"min": 0.001, "max": 0.5,  "step": 0.005},
+    "motion_active": {"min": 0.01,  "max": 1.0,  "step": 0.01},
+}
+
 
 class CameraSubprocess:
     """One workbench_activity.py subprocess + lifecycle."""
@@ -164,6 +191,12 @@ class CameraSubprocess:
             env[env_var] = "0" if merged_det.get(key, DEFAULT_DETECTIONS[key]) else "1"
         # The devices pass is a parent flag — auto-on if any device class is on
         env["USE_YOLO_DEVICES_PASS"] = "1" if any(merged_det.get(k, True) for k in _DEVICE_KEYS) else "0"
+        # Per-camera activity-classifier overrides (PoseStateTracker tunables)
+        pose_state = self.config.get("pose_state") or {}
+        for key, env_var in POSE_STATE_ENV_MAP.items():
+            v = pose_state.get(key)
+            if v is not None and v != "":
+                env[env_var] = str(v)
         args = [
             _PY, "-u", "workbench_activity.py",
             "--web", "--no-show",
@@ -863,6 +896,24 @@ input:focus, select:focus { outline:none; border-color:#5ad6e0; }
     </section>
 
     <section>
+      <h2>Activity classifier (per-camera tuning)</h2>
+      <p class="desc">Sleep / motion thresholds for this camera's pose-state classifier. Tune higher for "asleep" requires longer stillness; lower for faster sleep detection. Motion floors are normalized as fraction of frame height per second.</p>
+      <div class="form-grid">
+        {% for key in pose_state_keys %}
+        <div>
+          <label>{{ pose_state_labels[key] }} <span class="muted">(default {{ pose_state_defaults[key] }})</span></label>
+          <input type="number"
+            data-pkey="{{ key }}"
+            min="{{ pose_state_hints[key]['min'] }}"
+            max="{{ pose_state_hints[key]['max'] }}"
+            step="{{ pose_state_hints[key]['step'] }}"
+            value="{{ cam.pose_state[key] if cam.pose_state and key in cam.pose_state else pose_state_defaults[key] }}">
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section>
       <h2>Detection thresholds</h2>
       <p class="desc">Per-camera YOLO confidence floors. Higher = fewer false positives. Lower = catches more (including noise). Defaults: 0.40 for most classes, 0.10 for pose keypoints.</p>
       <div class="thresholds-grid">
@@ -1051,6 +1102,11 @@ document.getElementById('cam-form').addEventListener('submit', async (e) => {
     document.querySelectorAll('input[type=checkbox][data-dkey]').forEach(el => {
       detections[el.dataset.dkey] = el.checked;
     });
+    const poseState = {};
+    document.querySelectorAll('input[type=number][data-pkey]').forEach(el => {
+      const v = parseFloat(el.value);
+      if (!isNaN(v)) poseState[el.dataset.pkey] = v;
+    });
     const body = {
       name: fd.get('name').trim(),
       rtsp_url: fd.get('rtsp_url').trim(),
@@ -1059,6 +1115,7 @@ document.getElementById('cam-form').addEventListener('submit', async (e) => {
       roi: roi,
       thresholds: thresholds,
       detections: detections,
+      pose_state: poseState,
     };
     const r = await fetch('/api/cameras/' + camId, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const data = await r.json();
@@ -1319,6 +1376,10 @@ def settings_camera(cam_id):
         detection_keys=DETECTION_KEYS,
         detection_labels=DETECTION_LABELS,
         detection_defaults=DEFAULT_DETECTIONS,
+        pose_state_keys=POSE_STATE_KEYS,
+        pose_state_labels=POSE_STATE_LABELS,
+        pose_state_defaults=DEFAULT_POSE_STATE,
+        pose_state_hints=POSE_STATE_INPUT_HINTS,
         user=session.get("user", ""),
     )
 
@@ -1348,6 +1409,7 @@ def api_create_camera():
         "enabled": bool(data.get("enabled", True)),
         "thresholds": data.get("thresholds") or dict(DEFAULT_THRESHOLDS),
         "detections": data.get("detections") or dict(DEFAULT_DETECTIONS),
+        "pose_state": data.get("pose_state") or dict(DEFAULT_POSE_STATE),
     }
     if not cam["rtsp_url"]:
         return jsonify({"error": "rtsp_url is required"}), 400
@@ -1363,7 +1425,7 @@ def api_update_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     merged = dict(existing)
-    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections"):
+    for k in ("name", "rtsp_url", "roi", "enabled", "thresholds", "detections", "pose_state"):
         if k in data:
             merged[k] = data[k]
     if "port" in data and data["port"] is not None:

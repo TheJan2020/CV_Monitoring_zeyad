@@ -99,6 +99,10 @@ from env_settings import (
     use_frigate_http,
     get_yolo_device,
     show_explain_overlay,
+    get_pose_sleep_seconds,
+    get_pose_hold_seconds,
+    get_pose_motion_still,
+    get_pose_motion_active,
 )
 from frigate_http import latest_jpeg_url, poll_frames
 from video_source import open_capture, read_loop
@@ -208,7 +212,12 @@ def main() -> None:
     if args.web:
         web_server.start(host=args.web_host, port=args.web_port)
 
-    pose_state_tracker = PoseStateTracker()
+    pose_state_tracker = PoseStateTracker(
+        still_for_sleep_s=get_pose_sleep_seconds(),
+        hold_seconds=get_pose_hold_seconds(),
+        motion_still_norm=get_pose_motion_still(),
+        motion_active_norm=get_pose_motion_active(),
+    )
 
     if use_direct:
         print(f"Direct video source: {source!r}")
