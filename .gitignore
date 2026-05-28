@@ -8,6 +8,8 @@ __pycache__/
 config/cameras.json
 config/users.json
 config/secret.key
+config/timeline.db
+config/timeline.db-*
 
 # Worker logs
 worker_*.log

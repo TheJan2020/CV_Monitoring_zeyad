@@ -55,6 +55,8 @@ from config_store import (
     upsert_camera,
     verify_user,
 )
+import state_recorder
+from datetime import datetime
 
 _REPO = Path(__file__).parent.resolve()
 _PY = sys.executable  # use this venv's python for subprocess workers
@@ -262,6 +264,251 @@ def _require_login():
             return jsonify({"error": "unauthorized"}), 401
         return redirect(url_for("login", next=request.path))
     return None
+
+
+TIMELINE_HTML = """
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ cam.name }} — Timeline — CV Hub</title>
+<style>
+:root { color-scheme: dark; }
+body { font-family:-apple-system,Segoe UI,sans-serif; background:#111; color:#ddd; margin:0; }
+header { padding:14px 20px; background:#1b1b1f; display:flex; align-items:center; gap:14px; border-bottom:1px solid #262629; }
+header h1 { font-size:18px; font-weight:600; margin:0; color:#fff; }
+header .nav { margin-left:auto; display:flex; gap:14px; font-size:13px; }
+header .nav a { color:#9aa; text-decoration:none; }
+header .nav a:hover { color:#fff; }
+header .nav a.active { color:#5ad6e0; }
+main { max-width:1240px; margin:0 auto; padding:20px; }
+.title-bar { display:flex; align-items:center; gap:14px; margin-bottom:18px; flex-wrap:wrap; }
+.title-bar h2 { margin:0; font-size:22px; color:#fff; }
+.title-bar .meta { color:#9aa; font-size:13px; }
+.date-nav { margin-left:auto; display:flex; align-items:center; gap:6px; }
+.date-nav input { background:#262629; color:#fff; border:1px solid #2f2f33; border-radius:5px; padding:7px 9px; font-size:13px; font-family:inherit; }
+.date-nav .btn { background:#2f2f33; color:#ddd; border:0; border-radius:5px; padding:7px 12px; font-size:13px; font-family:inherit; cursor:pointer; }
+.date-nav .btn:hover { background:#3f3f44; }
+.date-nav a { color:#5ad6e0; text-decoration:none; font-size:13px; padding:7px 12px; }
+.bar-wrap { background:#1b1b1f; border-radius:8px; padding:18px; margin-bottom:18px; }
+.bar { position:relative; height:64px; background:#262629; border-radius:6px; overflow:hidden; cursor:crosshair; }
+.bar .seg { position:absolute; top:0; bottom:0; min-width:1px; }
+.bar .now { position:absolute; top:-4px; bottom:-4px; width:2px; background:#fff; box-shadow:0 0 6px rgba(255,255,255,0.6); pointer-events:none; }
+.bar .now::before { content:'now'; position:absolute; top:-16px; left:-12px; font-size:9px; color:#fff; background:#000; padding:1px 4px; border-radius:2px; white-space:nowrap; }
+.hour-marks { display:flex; justify-content:space-between; font-size:10px; color:#778; padding-top:6px; user-select:none; }
+.tooltip { position:absolute; background:#000; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; pointer-events:none; opacity:0; transition:opacity .1s; z-index:10; box-shadow:0 4px 12px rgba(0,0,0,0.5); }
+.tooltip.show { opacity:1; }
+.legend { display:flex; flex-wrap:wrap; gap:10px 18px; margin-top:14px; padding-top:14px; border-top:1px solid #262629; }
+.legend-item { display:flex; align-items:center; gap:6px; font-size:12px; color:#9aa; }
+.legend-swatch { width:14px; height:14px; border-radius:2px; }
+.totals { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+.total-card { background:#1b1b1f; border-radius:6px; padding:12px 14px; border-left:4px solid #444; }
+.total-card .lbl { font-size:11px; color:#9aa; text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+.total-card .val { font-size:22px; color:#fff; font-weight:600; font-variant-numeric:tabular-nums; }
+.total-card .sub { font-size:11px; color:#778; margin-top:2px; }
+.muted { color:#9aa; font-size:13px; }
+/* Activity colors (background swatches for the timeline bar) */
+.c-asleep        { background:#5763e0; }
+.c-resting       { background:#5a91d9; }
+.c-fidgeting     { background:#e0b340; }
+.c-restless      { background:#e08a3d; }
+.c-sitting_calm  { background:#3da95a; }
+.c-playing       { background:#e07a3d; }
+.c-very_active   { background:#e04074; }
+.c-standing,
+.c-walking,
+.c-running       { background:#3dc0d9; }
+.c-transitioning,
+.c-upright_still,
+.c-upright_moving,
+.c-uncertain,
+.c-lying,
+.c-sitting       { background:#666; }
+.c-out_of_frame  { background:#3a1f1f; opacity:0.6; }
+</style></head><body>
+<header>
+  <h1>CV Hub</h1>
+  <div class="nav">
+    <a href="/">Grid</a>
+    <a href="/settings">Settings</a>
+    <a href="/timeline/{{ cam.id }}" class="active">Timeline</a>
+    <a href="/logout">Logout ({{ user }})</a>
+  </div>
+</header>
+<main>
+  <div class="title-bar">
+    <h2>{{ cam.name }}</h2>
+    <span class="meta">activity timeline</span>
+    <div class="date-nav">
+      <a href="/camera/{{ cam.id }}">live ›</a>
+      <button class="btn" id="prev-day">‹ prev</button>
+      <input id="date" type="date" value="{{ day }}">
+      <button class="btn" id="next-day">next ›</button>
+      <button class="btn" id="today">today</button>
+    </div>
+  </div>
+
+  <div class="bar-wrap">
+    <div class="bar" id="bar">
+      <div class="tooltip" id="tip"></div>
+    </div>
+    <div class="hour-marks" id="hour-marks"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="totals" id="totals"></div>
+
+</main>
+<script>
+const camId = "{{ cam.id }}";
+let currentDate = "{{ day }}";
+
+const ACTIVITY_LABEL = {
+  asleep: 'Asleep', resting: 'Resting', fidgeting: 'Fidgeting', restless: 'Restless',
+  sitting_calm: 'Sitting calm', playing: 'Playing', very_active: 'Very active',
+  standing: 'Standing', walking: 'Walking', running: 'Running',
+  transitioning: 'Transitioning', upright_still: 'Upright still', upright_moving: 'Upright moving',
+  uncertain: 'Uncertain', lying: 'Lying', sitting: 'Sitting',
+  out_of_frame: 'Out of frame',
+};
+
+function fmtDur(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function fmtTime(unix) {
+  const d = new Date(unix * 1000);
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+}
+
+function renderHourMarks() {
+  const el = document.getElementById('hour-marks');
+  let html = '';
+  for (let h = 0; h <= 24; h += 3) html += `<span>${String(h).padStart(2,'0')}:00</span>`;
+  el.innerHTML = html;
+}
+
+function dayBounds(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return [d.getTime() / 1000, d.getTime() / 1000 + 86400];
+}
+
+function renderBar(segments) {
+  const bar = document.getElementById('bar');
+  const [start_ts, end_ts] = dayBounds(currentDate);
+  // Remove old segments
+  bar.querySelectorAll('.seg, .now').forEach(el => el.remove());
+  for (const s of segments) {
+    const x = ((s.start_ts - start_ts) / 86400) * 100;
+    const w = ((s.end_ts - s.start_ts) / 86400) * 100;
+    const div = document.createElement('div');
+    div.className = 'seg c-' + (s.activity || 'out_of_frame');
+    div.style.left = x + '%';
+    div.style.width = w + '%';
+    div.dataset.activity = s.activity;
+    div.dataset.startTs = s.start_ts;
+    div.dataset.endTs = s.end_ts;
+    div.dataset.durationS = s.duration_s;
+    bar.appendChild(div);
+  }
+  // "now" marker, only if viewing today
+  const today = new Date().toISOString().slice(0, 10);
+  if (currentDate === today) {
+    const now = Date.now() / 1000;
+    if (now >= start_ts && now <= end_ts) {
+      const pct = ((now - start_ts) / 86400) * 100;
+      const m = document.createElement('div');
+      m.className = 'now';
+      m.style.left = pct + '%';
+      bar.appendChild(m);
+    }
+  }
+}
+
+function renderTotals(totals) {
+  const el = document.getElementById('totals');
+  const items = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  if (items.length === 0) {
+    el.innerHTML = '<div class="muted" style="padding:20px;text-align:center;">No activity recorded for this day yet.</div>';
+    return;
+  }
+  const totalSeconds = items.reduce((s, [, v]) => s + v, 0);
+  el.innerHTML = items.map(([act, sec]) => {
+    const lbl = ACTIVITY_LABEL[act] || act;
+    const pct = totalSeconds > 0 ? ((sec / totalSeconds) * 100).toFixed(1) : '0';
+    // Pull bar color via temp element
+    const sw = document.createElement('span'); sw.className = 'c-' + act;
+    document.body.appendChild(sw);
+    const color = getComputedStyle(sw).backgroundColor; sw.remove();
+    return `<div class="total-card" style="border-left-color:${color};">
+      <div class="lbl">${lbl}</div>
+      <div class="val">${fmtDur(sec)}</div>
+      <div class="sub">${pct}% of recorded time</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLegend(segments) {
+  const seen = new Set(segments.map(s => s.activity));
+  const order = ['asleep','resting','fidgeting','restless','sitting_calm','playing','very_active','standing','transitioning','out_of_frame'];
+  const visible = order.filter(a => seen.has(a));
+  // Add any not in the canonical order
+  for (const a of seen) if (!visible.includes(a)) visible.push(a);
+  const el = document.getElementById('legend');
+  el.innerHTML = visible.map(a => {
+    return `<div class="legend-item"><span class="legend-swatch c-${a}"></span>${ACTIVITY_LABEL[a]||a}</div>`;
+  }).join('');
+}
+
+const tip = document.getElementById('tip');
+document.getElementById('bar').addEventListener('mousemove', (e) => {
+  const target = e.target;
+  if (!target.classList.contains('seg')) { tip.classList.remove('show'); return; }
+  const lbl = ACTIVITY_LABEL[target.dataset.activity] || target.dataset.activity;
+  tip.innerHTML = `<b>${lbl}</b><br>${fmtTime(target.dataset.startTs)} → ${fmtTime(target.dataset.endTs)}<br><span style="color:#9aa;">${fmtDur(target.dataset.durationS)}</span>`;
+  const barRect = e.currentTarget.getBoundingClientRect();
+  tip.style.left = (e.clientX - barRect.left + 10) + 'px';
+  tip.style.top = (-44) + 'px';
+  tip.classList.add('show');
+});
+document.getElementById('bar').addEventListener('mouseleave', () => tip.classList.remove('show'));
+
+async function load() {
+  document.getElementById('date').value = currentDate;
+  history.replaceState({}, '', '?date=' + currentDate);
+  try {
+    const r = await fetch('/api/timeline/' + camId + '?date=' + currentDate);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    renderBar(data.segments);
+    renderTotals(data.totals);
+    renderLegend(data.segments);
+  } catch (e) {
+    document.getElementById('totals').innerHTML = '<div class="muted" style="padding:20px;text-align:center;color:#ff7a7a;">Failed to load: ' + e.message + '</div>';
+  }
+}
+
+function shiftDay(days) {
+  const d = new Date(currentDate + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  currentDate = d.toISOString().slice(0, 10);
+  load();
+}
+
+document.getElementById('date').addEventListener('change', (e) => { currentDate = e.target.value; load(); });
+document.getElementById('prev-day').addEventListener('click', () => shiftDay(-1));
+document.getElementById('next-day').addEventListener('click', () => shiftDay(1));
+document.getElementById('today').addEventListener('click', () => { currentDate = new Date().toISOString().slice(0, 10); load(); });
+
+renderHourMarks();
+load();
+setInterval(load, 10000);  // refresh every 10s
+</script>
+</body></html>
+"""
 
 
 LOGIN_HTML = """
@@ -846,7 +1093,8 @@ header .sub { font-size:12px; color:#9aa; }
 .tile .details { background:#181819; padding:12px 14px; display:flex; flex-direction:column; gap:8px; border-left:1px solid #262629; min-width:0; }
 .tile .det-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .tile .name { font-weight:600; color:#fff; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tile a.open { color:#5ad6e0; text-decoration:none; font-size:12px; margin-top:auto; align-self:flex-start; padding-top:6px; }
+.tile a.open { color:#5ad6e0; text-decoration:none; font-size:12px; }
+.tile .tile-links { display:flex; gap:14px; margin-top:auto; padding-top:6px; }
 .tile .badge { font-size:11px; padding:3px 8px; border-radius:3px; background:#262629; color:#9aa; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
 .tile .disabled-msg { color:#666; font-size:12px; padding:30px; }
 .tile .stat-row { display:flex; justify-content:space-between; font-size:12px; color:#9aa; }
@@ -909,7 +1157,10 @@ header .sub { font-size:12px; color:#9aa; }
       <div class="stat-row"><span>FPS</span><b id="fps-{{ cam.id }}">—</b></div>
       <div class="det-label">Detections</div>
       <div class="det-list" id="dets-{{ cam.id }}"><div class="det-empty">—</div></div>
-      <a class="open" href="/camera/{{ cam.id }}">open detail ›</a>
+      <div class="tile-links">
+        <a class="open" href="/camera/{{ cam.id }}">live ›</a>
+        <a class="open" href="/timeline/{{ cam.id }}">timeline ›</a>
+      </div>
     </div>
   </div>
   {% endfor %}
@@ -1186,6 +1437,35 @@ def api_state(cam_id):
         return jsonify({"alive": False, "error": "timeout"}), 503
 
 
+@app.route("/api/timeline/<cam_id>")
+def api_timeline(cam_id):
+    if get_camera(cam_id) is None:
+        return jsonify({"error": "not found"}), 404
+    day = request.args.get("date") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    segments = state_recorder.get_segments(cam_id, day)
+    return jsonify({
+        "camera_id": cam_id,
+        "date": day,
+        "segments": segments,
+        "totals": state_recorder.get_totals(segments),
+    })
+
+
+@app.route("/timeline/<cam_id>")
+def timeline_page(cam_id):
+    cam = get_camera(cam_id)
+    if cam is None:
+        return redirect(url_for("index"))
+    day = request.args.get("date") or datetime.now().strftime("%Y-%m-%d")
+    return render_template_string(
+        TIMELINE_HTML, cam=cam, day=day, user=session.get("user", ""),
+    )
+
+
 @app.route("/api/snapshot/<cam_id>")
 def api_snapshot(cam_id):
     w = _workers.get(cam_id)
@@ -1217,6 +1497,9 @@ def main() -> None:
 
     seed_admin_if_missing()
     _start_all_workers()
+    recorder = state_recorder.StateRecorderThread(lambda: dict(_workers))
+    recorder.start()
+    atexit.register(recorder.stop)
 
     print(f"[hub] listening on {args.hub_host}:{args.hub_port}")
     print(f"[hub] open http://<this-host>:{args.hub_port}/ in your browser")
