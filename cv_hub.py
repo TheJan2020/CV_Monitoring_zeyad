@@ -268,10 +268,13 @@ main { max-width:880px; margin:0 auto; padding:20px; }
 section { background:#1b1b1f; border-radius:8px; padding:18px 20px; margin-bottom:18px; }
 section h2 { margin:0 0 14px; font-size:15px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:.04em; }
 table { width:100%; border-collapse:collapse; font-size:13px; }
-th, td { text-align:left; padding:9px 10px; border-bottom:1px solid #262629; }
+th, td { text-align:left; padding:9px 10px; border-bottom:1px solid #262629; vertical-align:middle; }
 th { font-weight:500; color:#9aa; text-transform:uppercase; letter-spacing:.04em; font-size:11px; }
 tr:last-child td { border-bottom:0; }
-td.actions { text-align:right; white-space:nowrap; }
+td.actions { text-align:right; }
+td.actions .actions-wrap { display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap; align-items:center; }
+td.actions .btn { display:inline-block; line-height:1.2; text-decoration:none; }
+#cam-table-wrap { overflow-x:auto; }
 input, select { background:#262629; color:#fff; border:1px solid #2f2f33; border-radius:5px; padding:7px 9px; font-size:13px; font-family:inherit; }
 input:focus, select:focus { outline:none; border-color:#5ad6e0; }
 .row-inline input { width:100%; box-sizing:border-box; }
@@ -361,11 +364,11 @@ async function loadCameras() {
       <td class="row-inline"><input value="${roiToText(c.roi)}" data-field="roi" style="width:120px;"></td>
       <td class="row-inline"><input value="${c.port}" data-field="port" type="number" style="width:80px;"></td>
       <td><div class="toggle ${c.enabled?'on':''}" data-field="enabled"></div></td>
-      <td class="actions">
+      <td class="actions"><div class="actions-wrap">
         <a class="btn sec" href="/settings/camera/${c.id}">Configure</a>
         <button class="btn" data-action="save">Save</button>
         <button class="btn danger" data-action="delete">Delete</button>
-      </td>
+      </div></td>
     </tr>`;
   }
   html += '</tbody></table>';
@@ -600,16 +603,32 @@ body { font-family:-apple-system,Segoe UI,sans-serif; background:#111; color:#dd
 header { padding:14px 20px; background:#1b1b1f; display:flex; align-items:center; gap:14px; border-bottom:1px solid #262629; }
 header h1 { font-size:18px; font-weight:600; margin:0; color:#fff; }
 header .sub { font-size:12px; color:#9aa; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:14px; padding:14px; }
-.tile { background:#1b1b1f; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; }
-.tile .video { background:#000; aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; min-height:180px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(560px, 1fr)); gap:14px; padding:14px; }
+.tile { background:#1b1b1f; border-radius:8px; overflow:hidden; display:grid; grid-template-columns:minmax(0,1fr) 220px; min-height:240px; }
+.tile .video { background:#000; display:flex; align-items:center; justify-content:center; min-height:240px; overflow:hidden; }
 .tile .video img { width:100%; height:100%; object-fit:contain; display:block; }
-.tile .meta { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; font-size:13px; }
-.tile .left { display:flex; align-items:center; gap:10px; }
-.tile .name { font-weight:600; color:#fff; font-size:14px; }
-.tile a.open { color:#5ad6e0; text-decoration:none; font-size:12px; }
-.tile .badge { font-size:11px; padding:3px 8px; border-radius:3px; background:#262629; color:#9aa; text-transform:uppercase; letter-spacing:.04em; }
+.tile .details { background:#181819; padding:12px 14px; display:flex; flex-direction:column; gap:8px; border-left:1px solid #262629; min-width:0; }
+.tile .det-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.tile .name { font-weight:600; color:#fff; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tile a.open { color:#5ad6e0; text-decoration:none; font-size:12px; margin-top:auto; align-self:flex-start; padding-top:6px; }
+.tile .badge { font-size:11px; padding:3px 8px; border-radius:3px; background:#262629; color:#9aa; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
 .tile .disabled-msg { color:#666; font-size:12px; padding:30px; }
+.tile .stat-row { display:flex; justify-content:space-between; font-size:12px; color:#9aa; }
+.tile .stat-row b { color:#fff; font-weight:500; font-variant-numeric:tabular-nums; }
+.tile .det-label { font-size:10px; color:#778; text-transform:uppercase; letter-spacing:.05em; margin-top:6px; border-top:1px solid #262629; padding-top:8px; }
+.tile .det-list { font-size:11px; max-height:140px; overflow-y:auto; }
+.tile .det { display:flex; justify-content:space-between; padding:3px 0; gap:6px; }
+.tile .det .dname { color:#ddd; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tile .det .dconf { color:#9aa; font-variant-numeric:tabular-nums; flex-shrink:0; }
+.tile .det.is_hands .dname { color:#5ae07a; }
+.tile .det.is_phone .dname { color:#ff7a7a; }
+.tile .det.is_primary .dname::before { content:"★ "; color:#5ad6e0; }
+.tile .det-empty { color:#666; font-size:11px; padding:6px 0; }
+@media (max-width: 720px) {
+  .tile { grid-template-columns:1fr; }
+  .tile .video { min-height:200px; }
+  .tile .details { border-left:0; border-top:1px solid #262629; }
+}
 .empty { padding:60px 20px; text-align:center; color:#778; line-height:1.6; }
 .empty code { background:#262629; padding:2px 6px; border-radius:3px; color:#aab; }
 /* activity colour cues — same palette as the per-camera UI */
@@ -645,32 +664,65 @@ header .sub { font-size:12px; color:#9aa; }
       <div class="disabled-msg">disabled</div>
       {% endif %}
     </div>
-    <div class="meta">
-      <div class="left">
+    <div class="details">
+      <div class="det-head">
         <span class="name">{{ cam.name }}</span>
         <span class="badge" id="act-{{ cam.id }}">…</span>
       </div>
-      <a class="open" href="/camera/{{ cam.id }}">open ›</a>
+      <div class="stat-row"><span>Persons</span><b id="persons-{{ cam.id }}">—</b></div>
+      <div class="stat-row"><span>FPS</span><b id="fps-{{ cam.id }}">—</b></div>
+      <div class="det-label">Detections</div>
+      <div class="det-list" id="dets-{{ cam.id }}"><div class="det-empty">—</div></div>
+      <a class="open" href="/camera/{{ cam.id }}">open detail ›</a>
     </div>
   </div>
   {% endfor %}
 </div>
 <script>
 const cams = [{% for cam in cameras %}{% if cam.enabled %}"{{ cam.id }}",{% endif %}{% endfor %}];
+
+function fmtRole(role) {
+  if (!role) return '';
+  if (role.endsWith('_hands')) return 'is_hands';
+  if (role === 'phone') return 'is_phone';
+  return '';
+}
+
 async function tick() {
   for (const id of cams) {
     try {
       const r = await fetch('/api/state/' + id, {cache:'no-store'});
       if (!r.ok) continue;
       const s = await r.json();
-      const el = document.getElementById('act-' + id);
+
+      // activity badge
       const act = s.activity || 'out_of_frame';
-      el.className = 'badge b-' + act;
-      el.textContent = act.replace(/_/g, ' ');
+      const actEl = document.getElementById('act-' + id);
+      actEl.className = 'badge b-' + act;
+      actEl.textContent = act.replace(/_/g, ' ');
+
+      // stats
+      document.getElementById('persons-' + id).textContent = s.person_count ?? 0;
+      document.getElementById('fps-' + id).textContent = (s.fps ?? 0).toFixed(1);
+
+      // detections — already sorted desc by confidence on the worker
+      const detsEl = document.getElementById('dets-' + id);
+      const dets = s.detections || [];
+      if (dets.length === 0) {
+        detsEl.innerHTML = '<div class="det-empty">no detections</div>';
+      } else {
+        detsEl.innerHTML = dets.slice(0, 10).map(d => {
+          const cls = ['det', fmtRole(d.role), d.is_primary ? 'is_primary' : ''].filter(Boolean).join(' ');
+          const conf = (d.confidence ?? 0).toFixed(2);
+          // escape any weird chars in name
+          const name = String(d.name).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+          return `<div class="${cls}"><span class="dname">${name}</span><span class="dconf">${conf}</span></div>`;
+        }).join('');
+      }
     } catch (e) {}
   }
 }
-setInterval(tick, 1500);
+setInterval(tick, 1000);
 tick();
 </script>
 {% else %}
