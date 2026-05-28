@@ -26,7 +26,7 @@ L_HIP, R_HIP = 11, 12
 L_KNEE, R_KNEE = 13, 14
 L_ANKLE, R_ANKLE = 15, 16
 
-_KP_CONF_MIN = 0.30  # ignore keypoints below this confidence
+_KP_CONF_MIN = 0.15  # ignore keypoints below this confidence (lowered for small/distant subjects)
 
 
 class Posture(str, Enum):

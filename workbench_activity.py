@@ -471,6 +471,22 @@ def main() -> None:
             else:
                 pose_state = pose_state_tracker.update(None, None, dt, frame_h=fh)
 
+            # bbox-shape fallback: when posture is UNKNOWN but a person box exists,
+            # use the box aspect ratio. Tall = upright, wide = lying.
+            if primary_person is not None and pose_state.posture.value == "unknown":
+                bw = max(1, primary_person.x2 - primary_person.x1)
+                bh = max(1, primary_person.y2 - primary_person.y1)
+                aspect = bh / bw
+                from pose_state import Posture as _P
+                if aspect >= 1.5:
+                    pose_state.posture = _P.UPRIGHT
+                elif aspect <= 0.7:
+                    pose_state.posture = _P.LYING
+                # rebuild activity with the new posture (motion remains as classified)
+                pose_state.activity = pose_state_tracker._activity(
+                    pose_state.posture, pose_state.motion, pose_state.still_seconds
+                )
+
             wrists_for_yolo: list[tuple[float, float]] = []
             wrists_stable: list[tuple[float, float]] = []
             if use_yolo_people_pass():
