@@ -1,17 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in — CV Monitoring</title>
+<title>Sign in — PrimeAnalyze</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script>
+  (function() {
+    var saved = localStorage.getItem('primeanalyze.theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+  })();
+</script>
 </head>
 <body class="login-page">
 
 <div class="login-box">
   <div class="brand">
-    <span class="logo">●</span>
-    <span class="brand-name">CV Monitor</span>
+    <span class="logo">◇</span>
+    <span class="brand-name">PrimeAnalyze</span>
   </div>
   <h1>Sign in</h1>
 

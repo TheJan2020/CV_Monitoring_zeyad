@@ -1,22 +1,33 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}CV Monitoring{% endblock %}</title>
+<title>{% block title %}PrimeAnalyze{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script>
+  // Apply saved theme before page renders to avoid a flash of light→dark.
+  (function() {
+    var saved = localStorage.getItem('primeanalyze.theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+  })();
+</script>
 </head>
 <body>
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <span class="logo">●</span>
-      <span class="brand-name">CV Monitor</span>
+      <span class="logo">◇</span>
+      <span class="brand-name">PrimeAnalyze</span>
     </div>
     <nav class="nav">
       <a href="/" class="nav-item {% if active == 'dashboard' %}active{% endif %}" title="Dashboard">
         <span class="icon">⊞</span>
         <span class="label">Dashboard</span>
+      </a>
+      <a href="/cameras" class="nav-item {% if active == 'cameras' %}active{% endif %}" title="Cameras">
+        <span class="icon">◉</span>
+        <span class="label">Cameras</span>
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -32,6 +43,10 @@
     <header class="topbar">
       <button class="toggle-sidebar" id="toggle-sidebar" aria-label="Toggle sidebar">☰</button>
       <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme" title="Toggle light / dark">
+        <span class="theme-icon-light">☀</span>
+        <span class="theme-icon-dark">☾</span>
+      </button>
     </header>
     <div class="content">
       {% block content %}{% endblock %}

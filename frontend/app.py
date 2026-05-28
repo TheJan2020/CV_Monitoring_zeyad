@@ -20,10 +20,18 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 from flask import (  # noqa: E402
-    Flask, redirect, render_template, request, session, url_for,
+    Flask, jsonify, redirect, render_template, request, session, url_for,
 )
 
 import db  # noqa: E402
+import hub_client  # noqa: E402
+
+# Camera categories surfaced in the UI -> hub camera "type" mapping.
+CATEGORY_TO_TYPE = {
+    "baby": "baby",
+    "worker": "general",
+}
+TYPE_TO_CATEGORY = {v: k for k, v in CATEGORY_TO_TYPE.items()}
 
 _REPO = _HERE.parent
 _SECRET_KEY_FILE = _REPO / "config" / "frontend_secret.key"
@@ -101,6 +109,99 @@ def dashboard():
         user=session["user"],
         active="dashboard",
     )
+
+
+@app.route("/cameras")
+def cameras_page():
+    return render_template(
+        "cameras.html",
+        user=session["user"],
+        active="cameras",
+    )
+
+
+# ---- Hub-backed camera API (proxies, with category mapping) ----
+
+@app.route("/api/cameras", methods=["GET"])
+def api_list_cameras():
+    out = []
+    for c in hub_client.list_cameras():
+        cam_type = c.get("type", "general")
+        out.append({
+            "id": c.get("id"),
+            "name": c.get("name"),
+            "category": TYPE_TO_CATEGORY.get(cam_type, "worker"),
+            "type": cam_type,
+            "rtsp_url": c.get("rtsp_url"),
+            "port": c.get("port"),
+            "enabled": c.get("enabled", True),
+        })
+    return jsonify(out)
+
+
+@app.route("/api/cameras/test", methods=["POST"])
+def api_test_camera():
+    body = request.get_json(silent=True) or {}
+    rtsp_url = (body.get("rtsp_url") or "").strip()
+    if not rtsp_url:
+        return jsonify({"ok": False, "error": "rtsp_url is required"}), 400
+    status, hub_body = hub_client.test_rtsp(rtsp_url)
+    if status == 200:
+        return jsonify(hub_body)
+    return jsonify({"ok": False, "error": hub_body.get("error") or f"hub status {status}"}), 502
+
+
+@app.route("/api/cameras", methods=["POST"])
+def api_create_camera():
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    category = (body.get("category") or "").strip()
+    rtsp_url = (body.get("rtsp_url") or "").strip()
+    if not name or not rtsp_url or category not in CATEGORY_TO_TYPE:
+        return jsonify({"error": "name, rtsp_url, and category are required"}), 400
+
+    # Auto-generate id from name + index if not provided
+    cam_id = (body.get("id") or "").strip() or _slugify_unique(name)
+
+    payload = {
+        "id": cam_id,
+        "name": name,
+        "rtsp_url": rtsp_url,
+        "type": CATEGORY_TO_TYPE[category],
+        "enabled": True,
+    }
+    status, resp = hub_client.create_camera(payload)
+    if 200 <= status < 300:
+        return jsonify({"ok": True, "camera": resp})
+    return jsonify({"error": resp.get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/cameras/<cam_id>", methods=["DELETE"])
+def api_delete_camera(cam_id):
+    status, resp = hub_client.delete_camera(cam_id)
+    if 200 <= status < 300:
+        return jsonify({"ok": True})
+    return jsonify({"error": resp.get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/cameras/<cam_id>/state", methods=["GET"])
+def api_camera_state(cam_id):
+    status, resp = hub_client.get_state(cam_id)
+    if status == 200 and isinstance(resp, dict):
+        return jsonify(resp)
+    return jsonify({"alive": False}), 503
+
+
+def _slugify_unique(name: str) -> str:
+    import re
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "cam"
+    existing = {c.get("id") for c in hub_client.list_cameras()}
+    if base not in existing:
+        return base
+    i = 2
+    while f"{base}_{i}" in existing:
+        i += 1
+    return f"{base}_{i}"
 
 
 @app.route("/healthz")

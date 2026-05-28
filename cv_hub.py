@@ -313,11 +313,17 @@ app.permanent_session_lifetime = 60 * 60 * 24 * 30  # 30 days
 
 
 _PUBLIC_ENDPOINTS = {"login", "static"}
+_TRUSTED_REMOTE = {"127.0.0.1", "::1"}
 
 
 @app.before_request
 def _require_login():
     if request.endpoint in _PUBLIC_ENDPOINTS or request.endpoint is None:
+        return None
+    # Loopback requests bypass auth so the PrimeAnalyze frontend (running
+    # on the same host) can call /api/* without a second session. External
+    # callers (Tailnet IPs, LAN IPs) still go through the login flow.
+    if request.remote_addr in _TRUSTED_REMOTE:
         return None
     if "user" not in session:
         if request.path.startswith("/api/"):
@@ -1511,6 +1517,39 @@ def api_update_camera(cam_id):
     upsert_camera(merged)
     reload_camera_worker(cam_id)
     return jsonify(merged)
+
+
+@app.route("/api/cameras/test", methods=["POST"])
+def api_test_camera_rtsp():
+    """Validate an RTSP URL by opening it and reading one frame."""
+    data = request.get_json(silent=True) or {}
+    rtsp_url = (data.get("rtsp_url") or "").strip()
+    if not rtsp_url:
+        return jsonify({"ok": False, "error": "rtsp_url is required"}), 400
+    import os as _os
+    import cv2  # type: ignore
+    _os.environ.setdefault(
+        "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+        "rtsp_transport;tcp|stimeout;5000000|max_delay;500000",
+    )
+    cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+    try:
+        if not cap.isOpened():
+            return jsonify({"ok": False, "error": "Could not open RTSP stream (URL, credentials, or network)."})
+        # Up to 30 attempts to grab a usable frame.
+        ok, frame = False, None
+        for _ in range(30):
+            ok, frame = cap.read()
+            if ok and frame is not None and getattr(frame, "size", 0) > 0:
+                break
+        if not ok or frame is None:
+            return jsonify({"ok": False, "error": "Stream opened but no frame received."})
+        return jsonify({"ok": True, "frame_shape": list(frame.shape)})
+    finally:
+        try:
+            cap.release()
+        except Exception:
+            pass
 
 
 @app.route("/api/cameras/<cam_id>", methods=["DELETE"])

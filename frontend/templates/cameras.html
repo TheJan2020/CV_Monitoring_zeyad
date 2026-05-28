@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Cameras — PrimeAnalyze{% endblock %}
+{% block page_title %}Cameras{% endblock %}
+
+{% block content %}
+<div class="page-toolbar">
+  <p class="muted" id="cam-summary">Loading cameras…</p>
+  <button class="btn btn-primary" id="open-add">+ Add Camera</button>
+</div>
+
+<div id="cam-grid" class="cam-grid"></div>
+
+<div id="cam-empty" class="placeholder hidden">
+  <h2>No cameras yet.</h2>
+  <p>Add your first camera using <b>+ Add Camera</b>. Connection is tested automatically.</p>
+</div>
+
+<!-- ===== Add Camera Modal ===== -->
+<div id="add-modal" class="modal hidden" role="dialog">
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Add Camera</h2>
+      <button class="modal-close" data-close>&times;</button>
+    </div>
+    <form id="add-form">
+      <label>
+        <span>Camera name</span>
+        <input name="name" required placeholder="e.g. Nursery, Workshop, Office">
+      </label>
+
+      <label>
+        <span>Category</span>
+        <select name="category" required>
+          <option value="baby">Baby Camera</option>
+          <option value="worker">Worker Camera</option>
+        </select>
+        <small class="hint">
+          <b>Baby Camera</b> = persistent lock, sticky activity states (asleep / lying / sitting / moving). <b>Worker Camera</b> = full activity classifier.
+        </small>
+      </label>
+
+      <label>
+        <span>Protocol</span>
+        <select name="protocol" id="proto" required>
+          <option value="rtsp">RTSP URL</option>
+          <option value="onvif" disabled>ONVIF auto-discover (coming soon)</option>
+        </select>
+        <small class="hint">RTSP is universal and works with all IP cameras. ONVIF discovery (auto-finds the RTSP URL from IP + credentials) will land next.</small>
+      </label>
+
+      <label>
+        <span>RTSP URL</span>
+        <input name="rtsp_url" required placeholder="rtsp://username:password@host:554/Preview_01_sub">
+        <small class="hint">Find the RTSP URL in your camera's web interface. Most IP cameras expose it under "Network" → "Advanced" → "RTSP".</small>
+      </label>
+
+      <div id="add-status" class="form-status"></div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+        <button type="button" class="btn btn-secondary" id="test-btn">Test connection</button>
+        <button type="submit" class="btn btn-primary" id="save-btn">Add camera</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='cameras.css') }}">
+<script src="{{ url_for('static', filename='cameras.js') }}"></script>
+{% endblock %}

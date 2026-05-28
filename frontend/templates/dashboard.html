@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — CV Monitoring{% endblock %}
+{% block title %}Dashboard — PrimeAnalyze{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
@@ -7,9 +7,9 @@
 
 <div class="cards">
   <div class="card">
-    <div class="card-header"><h3>Cameras</h3><span class="card-icon">●</span></div>
-    <p class="big">—</p>
-    <p class="sub">Wire up to the existing hub next</p>
+    <div class="card-header"><h3>Cameras</h3><span class="card-icon">◉</span></div>
+    <p class="big" id="card-camera-count">—</p>
+    <p class="sub"><a href="/cameras">Manage cameras ›</a></p>
   </div>
   <div class="card">
     <div class="card-header"><h3>Activity</h3><span class="card-icon">⟶</span></div>
@@ -29,8 +29,14 @@
 </div>
 
 <div class="placeholder">
-  <h2>The dashboard is a scaffold for now.</h2>
-  <p>The sidebar will fill in as we add more sections — Cameras, Timeline, Audio, Settings, Users, etc.</p>
-  <p>The existing multi-camera hub is still serving at port 8000 and remains the source of truth for camera config and live state.</p>
+  <h2>Welcome to PrimeAnalyze.</h2>
+  <p>Use the <b>Cameras</b> section to add and manage your camera feeds.</p>
+  <p>Toggle <b>light / dark theme</b> from the icon in the top-right.</p>
 </div>
+<script>
+fetch('/api/cameras').then(r => r.ok ? r.json() : []).then(d => {
+  const el = document.getElementById('card-camera-count');
+  if (Array.isArray(d)) el.textContent = d.length;
+}).catch(() => {});
+</script>
 {% endblock %}
