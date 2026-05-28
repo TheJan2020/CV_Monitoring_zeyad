@@ -485,6 +485,15 @@ input:focus, select:focus { outline:none; border-color:#5ad6e0; }
 .ok { color:#5ae07a; font-size:12px; }
 .err { color:#ff7a7a; font-size:12px; }
 .bar { display:flex; gap:12px; align-items:center; }
+.roi-editor { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+.roi-canvas-wrap { position:relative; flex:1 1 480px; max-width:800px; min-width:320px; background:#000; border-radius:6px; overflow:hidden; user-select:none; }
+.roi-canvas-wrap img { display:block; width:100%; height:auto; pointer-events:none; }
+.roi-canvas-wrap canvas { position:absolute; left:0; top:0; cursor:crosshair; }
+.roi-canvas-wrap .roi-loading { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:#666; font-size:13px; }
+.roi-controls { display:flex; flex-direction:column; gap:8px; min-width:160px; }
+.roi-coord { display:flex; align-items:center; gap:8px; }
+.roi-coord label { width:24px; color:#9aa; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.roi-coord input { flex:1; }
 </style></head><body>
 <header>
   <h1>CV Hub</h1>
@@ -509,7 +518,26 @@ input:focus, select:focus { outline:none; border-color:#5ad6e0; }
         <div><label>Port</label><input name="port" type="number" min="8001" max="8099" value="{{ cam.port }}" required></div>
         <div class="full"><label>RTSP URL</label><input name="rtsp_url" value="{{ cam.rtsp_url }}" required></div>
         <div><label>Enabled</label><select name="enabled"><option value="true" {% if cam.enabled %}selected{% endif %}>yes</option><option value="false" {% if not cam.enabled %}selected{% endif %}>no</option></select></div>
-        <div><label>ROI (x1,y1,x2,y2)</label><input name="roi" value="{{ cam.roi|join(',') }}" placeholder="0,0,1,1"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Region of interest (ROI)</h2>
+      <p class="desc">Drag on the snapshot to draw the detection region. Outside the rectangle is ignored. Numbers are normalized (0–1).</p>
+      <div class="roi-editor">
+        <div class="roi-canvas-wrap" id="roi-wrap">
+          <img id="roi-snap" src="/api/snapshot/{{ cam.id }}?t={{ cam.id }}" alt="snapshot" draggable="false">
+          <canvas id="roi-canvas"></canvas>
+          <div class="roi-loading" id="roi-loading">loading snapshot…</div>
+        </div>
+        <div class="roi-controls">
+          <div class="roi-coord"><label>x1</label><input id="roi-x1" type="number" min="0" max="1" step="0.001"></div>
+          <div class="roi-coord"><label>y1</label><input id="roi-y1" type="number" min="0" max="1" step="0.001"></div>
+          <div class="roi-coord"><label>x2</label><input id="roi-x2" type="number" min="0" max="1" step="0.001"></div>
+          <div class="roi-coord"><label>y2</label><input id="roi-y2" type="number" min="0" max="1" step="0.001"></div>
+          <button type="button" class="btn sec" id="roi-reset">Reset to full frame</button>
+          <button type="button" class="btn sec" id="roi-refresh">Refresh snapshot</button>
+        </div>
       </div>
     </section>
 
@@ -552,19 +580,148 @@ document.querySelectorAll('input[type=range][data-tkey]').forEach(slider => {
   num.addEventListener('input', () => { slider.value = num.value; });
 });
 
+// --- ROI editor ----------------------------------------------------------
+const initialRoi = {{ cam.roi|tojson }};
+let roi = Array.isArray(initialRoi) && initialRoi.length === 4 ? initialRoi.slice() : [0, 0, 1, 1];
+
+const img = document.getElementById('roi-snap');
+const canvas = document.getElementById('roi-canvas');
+const loadingEl = document.getElementById('roi-loading');
+const ctx = canvas.getContext('2d');
+const inX1 = document.getElementById('roi-x1');
+const inY1 = document.getElementById('roi-y1');
+const inX2 = document.getElementById('roi-x2');
+const inY2 = document.getElementById('roi-y2');
+
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function normRoi() {
+  roi = [
+    clamp01(Math.min(roi[0], roi[2])),
+    clamp01(Math.min(roi[1], roi[3])),
+    clamp01(Math.max(roi[0], roi[2])),
+    clamp01(Math.max(roi[1], roi[3])),
+  ];
+}
+function inputsFromRoi() {
+  inX1.value = roi[0].toFixed(3);
+  inY1.value = roi[1].toFixed(3);
+  inX2.value = roi[2].toFixed(3);
+  inY2.value = roi[3].toFixed(3);
+}
+function roiFromInputs() {
+  roi = [
+    parseFloat(inX1.value) || 0,
+    parseFloat(inY1.value) || 0,
+    parseFloat(inX2.value) || 1,
+    parseFloat(inY2.value) || 1,
+  ];
+  normRoi();
+  draw();
+}
+
+function fitCanvas() {
+  const w = img.clientWidth;
+  const h = img.clientHeight;
+  if (!w || !h) return;
+  canvas.width = w;
+  canvas.height = h;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  draw();
+}
+
+function draw() {
+  if (!canvas.width || !canvas.height) return;
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // Dim everything outside the ROI
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  const x = roi[0] * W, y = roi[1] * H;
+  const w = (roi[2] - roi[0]) * W, h = (roi[3] - roi[1]) * H;
+  ctx.clearRect(x, y, w, h);
+  // Border
+  ctx.strokeStyle = '#5ad6e0';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2));
+  // Corner handles
+  ctx.fillStyle = '#5ad6e0';
+  const handle = 8;
+  for (const [hx, hy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) {
+    ctx.fillRect(hx - handle/2, hy - handle/2, handle, handle);
+  }
+  // Label
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(x, y - 18, 110, 16);
+  ctx.fillStyle = '#5ad6e0';
+  ctx.font = '11px -apple-system, Segoe UI, sans-serif';
+  ctx.fillText(`ROI ${(roi[2]-roi[0]).toFixed(2)} x ${(roi[3]-roi[1]).toFixed(2)}`, x + 4, y - 6);
+}
+
+// Drag to draw a new ROI
+let dragging = false;
+let startX = 0, startY = 0;
+canvas.addEventListener('pointerdown', (e) => {
+  const r = canvas.getBoundingClientRect();
+  startX = clamp01((e.clientX - r.left) / r.width);
+  startY = clamp01((e.clientY - r.top) / r.height);
+  roi = [startX, startY, startX, startY];
+  dragging = true;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  const r = canvas.getBoundingClientRect();
+  const cx = clamp01((e.clientX - r.left) / r.width);
+  const cy = clamp01((e.clientY - r.top) / r.height);
+  roi = [Math.min(startX, cx), Math.min(startY, cy), Math.max(startX, cx), Math.max(startY, cy)];
+  inputsFromRoi();
+  draw();
+});
+canvas.addEventListener('pointerup', () => {
+  if (!dragging) return;
+  dragging = false;
+  // Tiny boxes are probably accidental clicks — restore previous ROI
+  if ((roi[2] - roi[0]) < 0.02 || (roi[3] - roi[1]) < 0.02) {
+    roi = initialRoi.slice();
+    inputsFromRoi();
+    draw();
+  }
+});
+
+[inX1, inY1, inX2, inY2].forEach(el => el.addEventListener('input', roiFromInputs));
+
+document.getElementById('roi-reset').addEventListener('click', () => {
+  roi = [0, 0, 1, 1];
+  inputsFromRoi(); draw();
+});
+document.getElementById('roi-refresh').addEventListener('click', () => {
+  loadingEl.style.display = '';
+  img.src = '/api/snapshot/{{ cam.id }}?t=' + Date.now();
+});
+
+img.addEventListener('load', () => {
+  loadingEl.style.display = 'none';
+  fitCanvas();
+});
+img.addEventListener('error', () => {
+  loadingEl.textContent = 'snapshot unavailable (worker not ready yet)';
+});
+window.addEventListener('resize', fitCanvas);
+
+// Initial state
+inputsFromRoi();
+if (img.complete && img.clientWidth) { loadingEl.style.display = 'none'; fitCanvas(); }
+
+
+// --- form save ------------------------------------------------------------
 document.getElementById('cam-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   const msg = document.getElementById('msg');
   msg.className = 'muted'; msg.textContent = 'Saving…';
   try {
-    const roiText = fd.get('roi').trim();
-    let roi = [0,0,1,1];
-    if (roiText) {
-      const parts = roiText.split(',').map(x => parseFloat(x.trim()));
-      if (parts.length !== 4 || parts.some(isNaN)) throw new Error('ROI must be 4 numbers x1,y1,x2,y2 in 0–1');
-      roi = parts;
-    }
+    normRoi();
     const thresholds = {};
     document.querySelectorAll('input[type=number][data-tkey-num]').forEach(el => {
       thresholds[el.dataset.tkeyNum] = parseFloat(el.value);
@@ -944,6 +1101,19 @@ def api_state(cam_id):
         return Response(data, mimetype="application/json")
     except (urllib.error.URLError, TimeoutError):
         return jsonify({"alive": False, "error": "timeout"}), 503
+
+
+@app.route("/api/snapshot/<cam_id>")
+def api_snapshot(cam_id):
+    w = _workers.get(cam_id)
+    if not w or not w.alive():
+        return Response("worker down", status=503)
+    try:
+        with urllib.request.urlopen(f"{w.url}/snapshot", timeout=3) as r:
+            data = r.read()
+        return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+    except (urllib.error.URLError, TimeoutError):
+        return Response("timeout", status=503)
 
 
 @app.route("/healthz")

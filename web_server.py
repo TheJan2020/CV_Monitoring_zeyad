@@ -220,6 +220,16 @@ def state() -> Any:
         return jsonify(_latest_state)
 
 
+@app.route("/snapshot")
+def snapshot() -> Any:
+    """Return the latest annotated frame as a single JPEG (no streaming)."""
+    with _lock:
+        buf = _latest_jpeg
+    if buf is None:
+        return Response("no frame yet", status=503)
+    return Response(buf, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.route("/stream")
 def stream() -> Any:
     def gen():
