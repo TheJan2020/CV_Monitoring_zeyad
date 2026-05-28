@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}CV Monitoring{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="logo">●</span>
+      <span class="brand-name">CV Monitor</span>
+    </div>
+    <nav class="nav">
+      <a href="/" class="nav-item {% if active == 'dashboard' %}active{% endif %}" title="Dashboard">
+        <span class="icon">⊞</span>
+        <span class="label">Dashboard</span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <span class="avatar">{{ user[0]|upper }}</span>
+        <span class="username">{{ user }}</span>
+      </div>
+      <a href="/logout" class="logout">Sign out</a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="toggle-sidebar" id="toggle-sidebar" aria-label="Toggle sidebar">☰</button>
+      <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
+    </header>
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

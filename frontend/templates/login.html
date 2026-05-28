@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — CV Monitoring</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+
+<div class="login-box">
+  <div class="brand">
+    <span class="logo">●</span>
+    <span class="brand-name">CV Monitor</span>
+  </div>
+  <h1>Sign in</h1>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form method="POST" action="/login">
+    <label>
+      <span>Username</span>
+      <input type="text" name="username" autocomplete="username" autofocus required>
+    </label>
+    <label>
+      <span>Password</span>
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <button type="submit">Sign in</button>
+  </form>
+
+  {% if default_creds %}
+  <p class="hint">First time? Default login: <code>admin</code> / <code>admin</code> — change it after you're in.</p>
+  {% endif %}
+</div>
+
+</body>
+</html>

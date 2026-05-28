@@ -10,6 +10,9 @@ config/users.json
 config/secret.key
 config/timeline.db
 config/timeline.db-*
+config/frontend.db
+config/frontend.db-*
+config/frontend_secret.key
 
 # Worker logs
 worker_*.log
