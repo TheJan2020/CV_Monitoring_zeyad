@@ -4,9 +4,10 @@ __pycache__/
 *.py[cod]
 .env
 
-# Per-deployment config (contains RTSP credentials and password hashes)
+# Per-deployment config (contains RTSP credentials, password hashes, session secret)
 config/cameras.json
 config/users.json
+config/secret.key
 
 # Worker logs
 worker_*.log

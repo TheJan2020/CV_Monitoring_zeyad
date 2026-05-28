@@ -24,6 +24,7 @@ def generate_password_hash(password: str) -> str:
 _DIR = Path(__file__).parent / "config"
 _CAMERAS = _DIR / "cameras.json"
 _USERS = _DIR / "users.json"
+_SECRET = _DIR / "secret.key"
 _LOCK = threading.Lock()
 
 
@@ -114,3 +115,16 @@ def set_password(username: str, new_password: str) -> None:
     users = load_users()
     users[username] = generate_password_hash(new_password)
     save_users(users)
+
+
+# ---- Flask secret key (persistent across hub restarts) -------------------
+
+def get_or_create_secret_key() -> bytes:
+    """Persist a 32-byte random secret key so sessions survive restarts."""
+    if _SECRET.exists():
+        return _SECRET.read_bytes()
+    import secrets
+    _DIR.mkdir(parents=True, exist_ok=True)
+    key = secrets.token_bytes(32)
+    _SECRET.write_bytes(key)
+    return key
