@@ -3,3 +3,12 @@ venv/
 __pycache__/
 *.py[cod]
 .env
+
+# Per-deployment config (contains RTSP credentials and password hashes)
+config/cameras.json
+config/users.json
+
+# Worker logs
+worker_*.log
+dashboard.log
+dashboard.err
