@@ -1626,17 +1626,24 @@ def api_audio(cam_id):
 
     cmd = [
         ffmpeg,
+        "-hide_banner",
+        "-loglevel", "error",
         "-rtsp_transport", "tcp",
-        "-fflags", "nobuffer",
+        # Reolink RTSP audio timestamps are non-monotonic; without this the
+        # MP3 muxer drops every packet ("invalid, non monotonically
+        # increasing dts") and the output is 0 bytes.
+        "-fflags", "+genpts",
+        "-use_wallclock_as_timestamps", "1",
         "-i", src,
         "-vn",
         "-ac", "1",
         "-ar", "22050",
+        # async resampling re-aligns audio to a monotonic clock.
+        "-af", "aresample=async=1000",
         "-acodec", "libmp3lame",
         "-b:a", "48k",
         "-flush_packets", "1",
         "-f", "mp3",
-        "-loglevel", "error",
         "-",
     ]
     try:
