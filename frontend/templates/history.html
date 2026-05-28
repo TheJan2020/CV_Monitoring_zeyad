@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}History — PrimeAnalyze{% endblock %}
+{% block page_title %}History{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='history.css') }}">
+
+<div class="history-toolbar">
+  <label class="field">
+    <span>Camera</span>
+    <select id="cam-select"><option>Loading…</option></select>
+  </label>
+  <label class="field">
+    <span>Date</span>
+    <input type="date" id="date-input">
+  </label>
+  <button class="btn btn-secondary" id="btn-prev">‹ Previous</button>
+  <button class="btn btn-secondary" id="btn-next">Next ›</button>
+  <button class="btn btn-secondary" id="btn-today">Today</button>
+</div>
+
+<div id="hist-body">
+  <p class="muted" id="hist-summary">Select a camera to see its history.</p>
+
+  <section class="hist-section">
+    <h3>Activity</h3>
+    <div class="hist-bar" data-track="activity"><div class="hist-tooltip"></div></div>
+  </section>
+
+  <section class="hist-section">
+    <h3>Posture</h3>
+    <div class="hist-bar" data-track="posture"><div class="hist-tooltip"></div></div>
+  </section>
+
+  <section class="hist-section">
+    <h3>Motion</h3>
+    <div class="hist-bar" data-track="motion"><div class="hist-tooltip"></div></div>
+  </section>
+
+  <div class="hist-hours" id="hist-hours"></div>
+
+  <section class="hist-section">
+    <h3>Totals</h3>
+    <div id="hist-totals" class="totals-grid"></div>
+  </section>
+
+  <section class="hist-section">
+    <h3>Snapshots <span id="snap-count" class="muted"></span></h3>
+    <div id="snap-grid" class="snap-grid"></div>
+  </section>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox" class="lightbox hidden" role="dialog">
+  <div class="lb-backdrop" data-close></div>
+  <button class="lb-close" data-close aria-label="Close">&times;</button>
+  <img id="lb-image" alt="snapshot">
+  <div id="lb-caption" class="lb-caption"></div>
+</div>
+
+<script src="{{ url_for('static', filename='history.js') }}"></script>
+{% endblock %}

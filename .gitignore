@@ -13,6 +13,7 @@ config/timeline.db-*
 config/frontend.db
 config/frontend.db-*
 config/frontend_secret.key
+config/snapshots/
 
 # Worker logs
 worker_*.log

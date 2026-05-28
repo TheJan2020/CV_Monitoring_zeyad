@@ -85,3 +85,19 @@ def get_state(cam_id: str) -> tuple[int, dict]:
 def get_health() -> tuple[int, dict]:
     res = _request("GET", "/healthz", timeout=3.0)
     return res["_status"], res["_body"] or {}
+
+
+def get_history(cam_id: str, date: str) -> tuple[int, dict]:
+    res = _request("GET", f"/api/history/{cam_id}?date={date}", timeout=8.0)
+    return res["_status"], res["_body"] or {}
+
+
+# Helper that returns the raw bytes from the hub's snapshot file endpoint.
+def fetch_snapshot_bytes(path_under_cam: str) -> bytes | None:
+    import urllib.request as _ur
+    import urllib.error as _ue
+    try:
+        with _ur.urlopen(f"{_HUB_URL}/api/snapshots/{path_under_cam}", timeout=4) as r:
+            return r.read()
+    except (_ue.URLError, TimeoutError):
+        return None

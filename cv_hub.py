@@ -1624,6 +1624,43 @@ def api_state(cam_id):
         return jsonify({"alive": False, "error": "timeout"}), 503
 
 
+@app.route("/api/history/<cam_id>")
+def api_history(cam_id):
+    """Three-track timeline + snapshots for a baby camera, by local date."""
+    cam = get_camera(cam_id)
+    if cam is None:
+        return jsonify({"error": "not found"}), 404
+    day = request.args.get("date") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    return jsonify({
+        "camera_id": cam_id,
+        "camera_name": cam.get("name"),
+        "camera_type": cam.get("type", "general"),
+        "date": day,
+        "tracks": state_recorder.get_segments(cam_id, day),
+        "totals": state_recorder.get_track_totals(cam_id, day),
+        "snapshots": state_recorder.get_snapshots(cam_id, day),
+    })
+
+
+@app.route("/api/snapshots/<cam_id>/<path:fname>")
+def api_serve_snapshot(cam_id, fname):
+    """Serve a saved snapshot JPEG from disk. fname is the part after the
+    camera_id segment, e.g. '2026-05-29/142530.jpg'."""
+    from flask import send_file, abort
+    safe = state_recorder.snapshot_path(f"{cam_id}/{fname}")
+    base = state_recorder.SNAPSHOTS_DIR.resolve()
+    if not str(safe).startswith(str(base)):
+        return abort(403)
+    if not safe.exists():
+        return abort(404)
+    return send_file(str(safe), mimetype="image/jpeg",
+                     conditional=True, max_age=3600)
+
+
 @app.route("/api/timeline/<cam_id>")
 def api_timeline(cam_id):
     if get_camera(cam_id) is None:

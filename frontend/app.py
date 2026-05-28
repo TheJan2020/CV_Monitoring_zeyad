@@ -120,6 +120,34 @@ def cameras_page():
     )
 
 
+@app.route("/history")
+def history_page():
+    return render_template(
+        "history.html",
+        user=session["user"],
+        active="history",
+    )
+
+
+@app.route("/api/history/<cam_id>")
+def api_history(cam_id):
+    date = request.args.get("date") or ""
+    status, body = hub_client.get_history(cam_id, date)
+    if 200 <= status < 300:
+        return jsonify(body)
+    return jsonify({"error": (body or {}).get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/snapshots/<cam_id>/<path:fname>")
+def api_snapshot_file(cam_id, fname):
+    from flask import Response, abort
+    data = hub_client.fetch_snapshot_bytes(f"{cam_id}/{fname}")
+    if data is None:
+        abort(404)
+    return Response(data, mimetype="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
 @app.route("/cameras/<cam_id>/configure")
 def camera_configure(cam_id):
     cam = hub_client.get_camera(cam_id)
