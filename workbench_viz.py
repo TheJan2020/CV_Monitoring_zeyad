@@ -123,13 +123,17 @@ def draw_explain_overlay(
     wrist_laptop_overlaps: list[HandObjectOverlap] | None = None,
     wrist_keyboard_overlaps: list[HandObjectOverlap] | None = None,
     wrist_mouse_overlaps: list[HandObjectOverlap] | None = None,
+    minimal: bool = False,
 ) -> Any:
     out = frame.copy()
     h, w = out.shape[:2]
     rx1, ry1, rx2, ry2 = roi.as_pixels(w, h)
 
     # --- ROI (full frame = label only, no big yellow box) ---
-    if roi.is_full_frame():
+    if minimal:
+        if not roi.is_full_frame():
+            cv2.rectangle(out, (rx1, ry1), (rx2, ry2), C_ROI, 1)
+    elif roi.is_full_frame():
         cv2.putText(
             out,
             "ROI: full frame",
@@ -173,26 +177,27 @@ def draw_explain_overlay(
     overlap_by_mouse = _best_overlap_map(mouse_overlaps)
 
     # --- Hand regions (small box past wrist toward fingers) ---
-    for wb in wrist_boxes or []:
-        side = wb.label.split("_")[-1] if "_" in wb.label else wb.label
-        col = (
-            C_WRIST_BOX_L
-            if side == "left"
-            else C_WRIST_BOX_R
-            if side == "right"
-            else C_WRIST_BOX
-        )
-        cv2.rectangle(out, (wb.x1, wb.y1), (wb.x2, wb.y2), col, 2)
-        tag = f"{wb.label} hand" if wb.label else "hand"
-        cv2.putText(
-            out,
-            tag,
-            (wb.x1, max(wb.y1 - 4, 12)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.42,
-            col,
-            1,
-        )
+    if not minimal:
+        for wb in wrist_boxes or []:
+            side = wb.label.split("_")[-1] if "_" in wb.label else wb.label
+            col = (
+                C_WRIST_BOX_L
+                if side == "left"
+                else C_WRIST_BOX_R
+                if side == "right"
+                else C_WRIST_BOX
+            )
+            cv2.rectangle(out, (wb.x1, wb.y1), (wb.x2, wb.y2), col, 2)
+            tag = f"{wb.label} hand" if wb.label else "hand"
+            cv2.putText(
+                out,
+                tag,
+                (wb.x1, max(wb.y1 - 4, 12)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.42,
+                col,
+                1,
+            )
 
     # --- YOLO boxes ---
     for d in yolo_detections:
@@ -347,10 +352,11 @@ def draw_explain_overlay(
                 1,
             )
 
-    _draw_hand_object_lines(phone_overlaps, C_LINE_PHONE)
-    _draw_hand_object_lines(laptop_overlaps, C_LINE_LAPTOP)
-    _draw_hand_object_lines(keyboard_overlaps, C_LINE_KEYBOARD)
-    _draw_hand_object_lines(mouse_overlaps, C_LINE_MOUSE)
+    if not minimal:
+        _draw_hand_object_lines(phone_overlaps, C_LINE_PHONE)
+        _draw_hand_object_lines(laptop_overlaps, C_LINE_LAPTOP)
+        _draw_hand_object_lines(keyboard_overlaps, C_LINE_KEYBOARD)
+        _draw_hand_object_lines(mouse_overlaps, C_LINE_MOUSE)
 
     # --- MediaPipe pose skeleton (one per YOLO person crop) ---
     poses = person_poses or []
@@ -418,6 +424,11 @@ def draw_explain_overlay(
             in_r = roi.contains(wx, wy)
             cv2.circle(out, (px, py), 10, C_WRIST_OK if in_r else C_WRIST_NO, -1)
             cv2.circle(out, (px, py), 12, (0, 255, 255), 2)
+
+    if minimal:
+        # Skip all the explainability chrome: status text, top banner, bottom
+        # score panel and the right-side legend. Just return the annotated frame.
+        return out
 
     # --- YOLO person status ---
     status_y = h - 8 if roi.is_full_frame() else min(ry2 + 22, h - 8)

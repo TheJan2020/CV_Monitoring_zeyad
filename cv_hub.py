@@ -82,7 +82,7 @@ DEFAULT_THRESHOLDS = {
 }
 
 # Per-camera detection-class toggles (which models / passes to run + show)
-DETECTION_KEYS = ["person", "pose", "phone", "laptop", "keyboard", "mouse", "extra_tools"]
+DETECTION_KEYS = ["person", "pose", "phone", "laptop", "keyboard", "mouse", "extra_tools", "clean_view"]
 DETECTION_LABELS = {
     "person":      "Person (bounding box)",
     "pose":        "Pose (skeleton)",
@@ -91,7 +91,10 @@ DETECTION_LABELS = {
     "keyboard":    "Keyboard",
     "mouse":       "Mouse",
     "extra_tools": "Other COCO objects (bottle, book, cup, …)",
+    "clean_view":  "Clean view — hide overlay chrome (banner / panel / legend)",
 }
+# Maps to an env var consumed by the worker.
+# Note: clean_view is INVERTED — checked means hide, env var SHOW_EXPLAIN_OVERLAY=0.
 DETECTION_ENV_MAP = {
     "person":      "USE_YOLO_PEOPLE_PASS",
     "pose":        "USE_POSE",
@@ -101,6 +104,7 @@ DETECTION_ENV_MAP = {
     "mouse":       "USE_YOLO_MOUSE_PASS",
     "extra_tools": "SHOW_ALL_TOOLS",
 }
+_INVERTED_TOGGLES = {"clean_view": "SHOW_EXPLAIN_OVERLAY"}
 DEFAULT_DETECTIONS = {
     "person":      True,
     "pose":        True,
@@ -109,6 +113,7 @@ DEFAULT_DETECTIONS = {
     "keyboard":    True,
     "mouse":       True,
     "extra_tools": False,   # off by default to cut visual clutter
+    "clean_view":  False,   # off = show full debug overlay (current behaviour)
 }
 _DEVICE_KEYS = ("phone", "laptop", "keyboard", "mouse")
 
@@ -152,6 +157,9 @@ class CameraSubprocess:
         merged_det = {**DEFAULT_DETECTIONS, **{k: bool(v) for k, v in detections.items() if k in DEFAULT_DETECTIONS}}
         for key, env_var in DETECTION_ENV_MAP.items():
             env[env_var] = "1" if merged_det.get(key, DEFAULT_DETECTIONS[key]) else "0"
+        # Inverted toggles: clean_view ON means SHOW_EXPLAIN_OVERLAY=0 (hide chrome)
+        for key, env_var in _INVERTED_TOGGLES.items():
+            env[env_var] = "0" if merged_det.get(key, DEFAULT_DETECTIONS[key]) else "1"
         # The devices pass is a parent flag — auto-on if any device class is on
         env["USE_YOLO_DEVICES_PASS"] = "1" if any(merged_det.get(k, True) for k in _DEVICE_KEYS) else "0"
         args = [

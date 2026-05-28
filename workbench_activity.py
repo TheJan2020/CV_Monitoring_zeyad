@@ -98,6 +98,7 @@ from env_settings import (
     resolve_video_source,
     use_frigate_http,
     get_yolo_device,
+    show_explain_overlay,
 )
 from frigate_http import latest_jpeg_url, poll_frames
 from video_source import open_capture, read_loop
@@ -764,6 +765,7 @@ def main() -> None:
                     wrist_laptop_overlaps=wrist_laptop_overlaps,
                     wrist_keyboard_overlaps=wrist_keyboard_overlaps,
                     wrist_mouse_overlaps=wrist_mouse_overlaps,
+                    minimal=not show_explain_overlay(),
                 )
                 if args.web:
                     fps_now = 1.0 / dt if dt > 0 else 0.0

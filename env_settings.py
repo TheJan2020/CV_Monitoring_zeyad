@@ -443,6 +443,13 @@ def log_verbose() -> bool:
     return _use_env_flag("LOG_VERBOSE", default_on=True)
 
 
+def show_explain_overlay() -> bool:
+    """When False, draw minimal overlay — boxes + skeleton, no chrome.
+    Skips: top state banner, bottom score panel, right legend, ROI label,
+    status text, hand-region boxes, hand-object IoU lines."""
+    return _use_env_flag("SHOW_EXPLAIN_OVERLAY", default_on=True)
+
+
 def _float_env(name: str, default: float) -> float:
     raw = (os.getenv(name) or "").strip()
     if not raw:
