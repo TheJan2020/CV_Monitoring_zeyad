@@ -290,11 +290,44 @@
 .snap-cell {
   position: relative;
   background: #000;
-  border: 1px solid var(--border);
+  border: 3px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   cursor: zoom-in;
   aspect-ratio: 16 / 9;
+}
+
+/* Activity-state border colors — matches the timeline track pills. */
+.snap-cell.snap-act-asleep        { border-color: #6342dd; }
+.snap-cell.snap-act-lying,
+.snap-cell.snap-act-resting       { border-color: var(--accent); }
+.snap-cell.snap-act-sitting,
+.snap-cell.snap-act-sitting_calm  { border-color: var(--success); }
+.snap-cell.snap-act-playing,
+.snap-cell.snap-act-fidgeting     { border-color: var(--warning); }
+.snap-cell.snap-act-restless,
+.snap-cell.snap-act-very_active,
+.snap-cell.snap-act-moving_a_lot  { border-color: var(--error); }
+.snap-cell.snap-act-standing,
+.snap-cell.snap-act-walking,
+.snap-cell.snap-act-running       { border-color: #6ba9e0; }
+.snap-cell.snap-act-out_of_frame  { border-color: #5a5a66; }
+
+/* Small label badge in the top-left so the state is readable
+   without remembering the color code. */
+.snap-act-tag {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
 }
 
 .snap-cell img {

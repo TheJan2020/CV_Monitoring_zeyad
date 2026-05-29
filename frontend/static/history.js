@@ -402,10 +402,14 @@ function renderSnapshots(snaps) {
     const url = `/api/snapshots/${s.file_rel}`;
     const clipDot = s.clip_rel
       ? '<span class="snap-clipdot" title="Has audio/video clip">▶</span>' : "";
+    const act = (s.state && s.state.activity) || "";
+    const actCls = act ? ` snap-act-${act}` : "";
+    const actLabel = act ? (ACTIVITY_LABEL[act] || act) : "";
     return `
-      <div class="snap-cell" data-idx="${idx}">
+      <div class="snap-cell${actCls}" data-idx="${idx}" title="${actLabel}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         ${clipDot}
+        ${actLabel ? `<div class="snap-act-tag">${actLabel}</div>` : ""}
         <div class="snap-time">${fmtClock(s.captured_at)}</div>
       </div>`;
   }).join("");
