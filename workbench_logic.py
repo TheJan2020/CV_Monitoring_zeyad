@@ -1959,7 +1959,10 @@ def synthesize_person_from_pose(
     frame_w: int,
     frame_h: int,
     *,
-    kp_conf_min: float = 0.30,
+    kp_conf_min: float = 0.45,
+    min_kps: int = 5,
+    min_avg_conf: float = 0.40,
+    require_upper_and_lower: bool = True,
     pad_frac: float = 0.10,
 ) -> "YoloDetection | None":
     """Build a synthetic person YoloDetection from pose keypoints.
@@ -1967,18 +1970,57 @@ def synthesize_person_from_pose(
     Used when the YOLO pose model returns a skeleton but the YOLO person
     detector missed the bounding box — without this, person_count and
     downstream scoring stay zero while the skeleton is visible on screen.
+
+    Anti-hallucination guards (added after observing the pose model
+    materialise "skeletons" on hairbrushes, feeding bottles, and folded
+    blankets which then drove false BabyTracker locks at conf=0.50):
+
+      * ``kp_conf_min``           per-keypoint confidence floor (raised)
+      * ``min_kps``                minimum qualifying keypoints (raised)
+      * ``min_avg_conf``           NEW — average over qualifying keypoints
+      * ``require_upper_and_lower`` NEW — at least one COCO keypoint in
+                                  [0..10] (head/torso/arms) AND one in
+                                  [11..16] (hips/legs), so a localised
+                                  noise cluster on one object can't pass
+
+    Returned ``confidence`` is the average keypoint confidence (not a
+    fixed 0.50 anymore), so downstream filters and the BabyTracker's
+    stale-lock guard can see how strong the underlying evidence is.
     """
     if pose.keypoints_xy is None or pose.keypoints_conf is None:
         return None
+    n = min(len(pose.keypoints_conf), len(pose.keypoints_xy))
+
+    qualifying: list[int] = []
     xs: list[float] = []
     ys: list[float] = []
-    for i in range(min(len(pose.keypoints_conf), len(pose.keypoints_xy))):
-        if float(pose.keypoints_conf[i]) < kp_conf_min:
+    conf_sum = 0.0
+    for i in range(n):
+        c = float(pose.keypoints_conf[i])
+        if c < kp_conf_min:
             continue
+        qualifying.append(i)
         xs.append(float(pose.keypoints_xy[i][0]))
         ys.append(float(pose.keypoints_xy[i][1]))
-    if len(xs) < 3:
+        conf_sum += c
+
+    if len(qualifying) < min_kps:
         return None
+
+    avg_conf = conf_sum / len(qualifying)
+    if avg_conf < min_avg_conf:
+        return None
+
+    if require_upper_and_lower:
+        # COCO keypoint indices: 0..10 are head/torso/arms (upper),
+        # 11..16 are hips/knees/ankles (lower). A real body shows at
+        # least one of each; a localised noise cluster on a hairbrush
+        # or bottle doesn't.
+        has_upper = any(i <= 10 for i in qualifying)
+        has_lower = any(i >= 11 for i in qualifying)
+        if not (has_upper and has_lower):
+            return None
+
     x_min, x_max = min(xs), max(xs)
     y_min, y_max = min(ys), max(ys)
     box_w = max(1.0, x_max - x_min)
@@ -1991,9 +2033,10 @@ def synthesize_person_from_pose(
     y2 = min(frame_h, int(y_max + pad_y))
     if (x2 - x1) < 16 or (y2 - y1) < 16:
         return None
+
     return YoloDetection(
         name="person",
-        confidence=0.50,
+        confidence=min(0.95, avg_conf),
         x1=x1, y1=y1, x2=x2, y2=y2,
         in_roi=True,
         near_hand=False,
