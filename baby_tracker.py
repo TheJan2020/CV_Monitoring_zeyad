@@ -88,6 +88,13 @@ class BabyTracker:
         smooth: float = 0.4,              # 0 = snap to new, 1 = ignore new
         sleep_seconds: float = 30.0,
         moving_a_lot_norm: float = 0.10,  # motion-score threshold (per second normalized)
+        # Stale-lock release: if YOLO has been feeding us low-confidence
+        # detections for stale_lock_seconds straight without a single
+        # detection above stale_lock_max_conf, release the lock — almost
+        # certainly a textured pattern / stuffed toy / chair back rather
+        # than a real subject.
+        stale_lock_seconds: float = 90.0,
+        stale_lock_max_conf: float = 0.40,
     ) -> None:
         self.acquire_frames = max(1, int(acquire_frames))
         self.iou_match = iou_match
@@ -95,6 +102,8 @@ class BabyTracker:
         self.smooth = smooth
         self.sleep_seconds = sleep_seconds
         self.moving_a_lot_norm = moving_a_lot_norm
+        self.stale_lock_seconds = stale_lock_seconds
+        self.stale_lock_max_conf = stale_lock_max_conf
 
         self.state: LockState = LockState.NONE
         self.lock: LockedBox | None = None
@@ -102,6 +111,7 @@ class BabyTracker:
         self._candidate_conf: float = 0.0
         self._acquire_count: int = 0
         self._lock_started_t: float | None = None
+        self._max_conf_since_lock: float = 0.0
 
         # Activity state machine (only valid while LOCKED)
         self.activity: str = "out_of_frame"
@@ -127,6 +137,7 @@ class BabyTracker:
         self._candidate_conf = 0.0
         self._acquire_count = 0
         self._lock_started_t = None
+        self._max_conf_since_lock = 0.0
         self._still_since = None
         self._still_seconds = 0.0
         self.activity = "out_of_frame"
@@ -195,6 +206,7 @@ class BabyTracker:
                         confidence=match_conf,
                     )
                     self._lock_started_t = t
+                    self._max_conf_since_lock = match_conf
             else:
                 self._acquire_count = max(0, self._acquire_count - 1)
                 if self._acquire_count == 0:
@@ -204,11 +216,24 @@ class BabyTracker:
         elif self.state == LockState.LOCKED:
             assert self.lock is not None
             if match is not None:
+                # Stale-lock check: track best confidence seen during this
+                # lock, and bail out if YOLO has been feeding only weak
+                # detections for long enough that this clearly isn't a real
+                # subject (stuffed toy, blanket pattern, chair back).
+                if match_conf > self._max_conf_since_lock:
+                    self._max_conf_since_lock = match_conf
+                age = t - (self._lock_started_t or t)
+                if (
+                    age > self.stale_lock_seconds
+                    and self._max_conf_since_lock < self.stale_lock_max_conf
+                ):
+                    self._release()
+                    return None
                 new = self._smooth_update(self.lock, match)
                 self.lock = LockedBox(
                     x1=new[0], y1=new[1], x2=new[2], y2=new[3],
                     last_seen_t=t,
-                    age_s=t - (self._lock_started_t or t),
+                    age_s=age,
                     age_since_seen_s=0.0,
                     confidence=match_conf,
                 )
