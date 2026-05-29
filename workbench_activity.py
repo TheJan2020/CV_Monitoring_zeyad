@@ -125,6 +125,7 @@ from workbench_logic import (
     compute_wrist_keyboard_overlaps,
     collect_yolo_pose_persons,
     consolidate_person_detections,
+    dedupe_person_poses,
     count_person_detections,
     count_phones_in_frame,
     infer_wrists_from_yolo,
@@ -473,6 +474,14 @@ def main() -> None:
                     single = estimate_pose_full_frame(frame, mp_pose_inst)
                     if single is not None:
                         person_poses = [single]
+
+            # Collapse pose detections that fall on the same subject.
+            # YOLO-pose occasionally emits two skeletons for the same baby;
+            # the two skeletons jitter against each other frame-to-frame,
+            # which PoseStateTracker reads as motion and never lets
+            # still_seconds advance to the sleep threshold.
+            if len(person_poses) > 1:
+                person_poses = dedupe_person_poses(person_poses)
 
             if person_poses:
                 primary_pose = next(

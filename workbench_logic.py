@@ -1001,6 +1001,80 @@ def _det_iou(a: YoloDetection, b: YoloDetection) -> float:
     return inter / (area_a + area_b - inter)
 
 
+def dedupe_person_poses(
+    poses: list["PersonPose"],
+    *,
+    iomin_threshold: float = 0.5,
+    kp_conf_min: float = 0.15,
+) -> list["PersonPose"]:
+    """Collapse pose detections that fall on the same subject.
+
+    YOLO-pose sometimes emits two skeletons for the same baby — keypoints
+    jitter between them frame-to-frame, which PoseStateTracker reads as
+    motion and prevents ``still_seconds`` from advancing. As a result the
+    activity classifier stays in ``sitting`` while the baby is actually
+    sleeping.
+
+    Strategy: compute each pose's bbox from its high-confidence
+    keypoints, sort by summed keypoint confidence (descending), and drop
+    any pose whose bbox is heavily inside an already-kept one
+    (intersection / min-area >= ``iomin_threshold``). The surviving
+    skeleton drives the motion calc cleanly.
+
+    If a pose has fewer than 3 high-confidence keypoints we can't form a
+    reliable bbox — it's kept as-is (the rare case where this matters,
+    erring on the side of preserving signal).
+    """
+    if len(poses) <= 1:
+        return list(poses)
+
+    def _bbox_and_score(pose: "PersonPose"):
+        if pose.keypoints_xy is None or pose.keypoints_conf is None:
+            return None, 0.0
+        n = min(len(pose.keypoints_xy), len(pose.keypoints_conf))
+        xs: list[float] = []
+        ys: list[float] = []
+        score = 0.0
+        for i in range(n):
+            c = float(pose.keypoints_conf[i])
+            if c < kp_conf_min:
+                continue
+            xs.append(float(pose.keypoints_xy[i][0]))
+            ys.append(float(pose.keypoints_xy[i][1]))
+            score += c
+        if len(xs) < 3:
+            return None, score
+        return (min(xs), min(ys), max(xs), max(ys)), score
+
+    def _bbox_iomin(a, b) -> float:
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        ix1 = max(ax1, bx1); iy1 = max(ay1, by1)
+        ix2 = min(ax2, bx2); iy2 = min(ay2, by2)
+        if ix2 <= ix1 or iy2 <= iy1:
+            return 0.0
+        inter = (ix2 - ix1) * (iy2 - iy1)
+        area_a = max(1.0, (ax2 - ax1) * (ay2 - ay1))
+        area_b = max(1.0, (bx2 - bx1) * (by2 - by1))
+        return inter / min(area_a, area_b)
+
+    enriched = [(p, *_bbox_and_score(p)) for p in poses]
+    # Higher score first; bbox-less poses sink to the end (kept regardless).
+    enriched.sort(key=lambda t: (0 if t[1] is not None else 1, -t[2]))
+
+    kept: list["PersonPose"] = []
+    kept_bboxes: list = []
+    for pose, bbox, _score in enriched:
+        if bbox is None:
+            kept.append(pose)
+            continue
+        if any(_bbox_iomin(bbox, kb) >= iomin_threshold for kb in kept_bboxes):
+            continue
+        kept.append(pose)
+        kept_bboxes.append(bbox)
+    return kept
+
+
 def _det_iomin(a: YoloDetection, b: YoloDetection) -> float:
     """Intersection-over-min-area. 1.0 means one box is entirely inside
     the other (regardless of how much bigger the outer one is). Catches
