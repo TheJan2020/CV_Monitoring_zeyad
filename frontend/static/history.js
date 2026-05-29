@@ -421,6 +421,20 @@ function renderSnapshots(snaps) {
 
 const lightbox = document.getElementById("lightbox");
 
+function setLightboxTab(name) {
+  document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
+    el.classList.toggle("active", el.dataset.tab === name),
+  );
+  document.querySelectorAll("#lightbox .lb-pane").forEach((el) =>
+    el.classList.toggle("active", el.dataset.pane === name),
+  );
+  // Pause video if leaving the video tab.
+  if (name !== "video") {
+    const clipEl = document.getElementById("lb-clip");
+    try { if (clipEl) clipEl.pause(); } catch (e) {}
+  }
+}
+
 function openLightbox(snap) {
   const annotated = `/api/snapshots/${snap.file_rel}`;
   const raw = annotated.replace(/\.jpg$/, "_raw.jpg");
@@ -434,23 +448,38 @@ function openLightbox(snap) {
   document.getElementById("lb-img-annotated").src = annotated;
   document.getElementById("lb-img-raw").src = raw;
 
-  // Video clip: show if the snapshot has one, otherwise hide the block.
-  const clipWrap = document.getElementById("lb-clip-wrap");
+  // Video clip + tab availability.
   const clipEl   = document.getElementById("lb-clip");
+  const noclip   = document.getElementById("lb-noclip");
+  const tabVideo = document.getElementById("lb-tab-video");
   if (snap.clip_rel) {
     clipEl.src = `/api/snapshots/${snap.clip_rel}`;
     clipEl.load();
-    clipWrap.style.display = "";
+    clipEl.style.display = "";
+    noclip.style.display = "none";
+    tabVideo.disabled = false;
+    tabVideo.classList.remove("disabled");
   } else {
     clipEl.removeAttribute("src");
     clipEl.load();
-    clipWrap.style.display = "none";
+    clipEl.style.display = "none";
+    noclip.style.display = "";
+    // Tab stays visible but disabled so users see "no clip recorded".
+    tabVideo.disabled = false;
+    tabVideo.classList.add("disabled");
   }
 
   // Parameters
   document.getElementById("lb-params").innerHTML = renderParams(snap.state);
+  // Always default to the Images tab when opening — least disruptive.
+  setLightboxTab("images");
   lightbox.classList.remove("hidden");
 }
+
+// Tab click handlers (set up once).
+document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
+  el.addEventListener("click", () => setLightboxTab(el.dataset.tab)),
+);
 
 function renderParams(state) {
   if (!state || typeof state !== "object") {

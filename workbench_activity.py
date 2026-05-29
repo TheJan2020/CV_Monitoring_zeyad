@@ -522,15 +522,14 @@ def main() -> None:
             # bbox (may carry across YOLO drops up to hold_seconds). When a
             # lock is held but YOLO didn't detect this frame, synth the lock
             # into yolo_detections so downstream rendering shows it.
-            baby_lock = None
+            # Pose-corroboration filter (baby mode): apply to yolo_detections
+            # directly so the filter removes the bogus blue box from
+            # RENDERING, persons count, AND the BabyTracker — in one place.
+            #
+            # Previously this filter only gatekeeps person_evidence going
+            # into the BabyTracker, so even though the lock didn't form,
+            # the underlying YoloDetection still drew on the stream.
             if baby_tracker is not None:
-                # Pose corroboration: a low-confidence YOLO person box only
-                # counts as real-baby evidence if at least one pose keypoint
-                # falls inside it. High-confidence boxes (>= 0.40) bypass
-                # this — they're strong enough on their own. This is the
-                # IR/night-vision fix: real partial babies still produce
-                # head/shoulder keypoints; stuffed toys and patterned
-                # blankets produce none.
                 HIGH_CONF_NO_POSE = 0.40
                 KP_CONF_FOR_CORR = 0.15
 
@@ -548,14 +547,28 @@ def main() -> None:
                                 return True
                     return False
 
-                person_evidence: list = []
+                kept = []
+                dropped_persons = 0
                 for d in yolo_detections:
                     if d.name != "person":
+                        kept.append(d)
                         continue
                     if d.confidence >= HIGH_CONF_NO_POSE or _corroborated_by_pose(d):
-                        person_evidence.append(
-                            ((d.x1, d.y1, d.x2, d.y2), float(d.confidence))
-                        )
+                        kept.append(d)
+                    else:
+                        dropped_persons += 1
+                if dropped_persons:
+                    yolo_detections = kept
+                    n_persons = count_person_detections(yolo_detections)
+                    if primary_person is not None and primary_person not in yolo_detections:
+                        primary_person = None
+
+            baby_lock = None
+            if baby_tracker is not None:
+                person_evidence: list = [
+                    ((d.x1, d.y1, d.x2, d.y2), float(d.confidence))
+                    for d in yolo_detections if d.name == "person"
+                ]
                 baby_lock = baby_tracker.observe(
                     t0,
                     person_evidence,

@@ -76,26 +76,37 @@
   <div class="lb-content">
     <div class="lb-header">
       <h3 id="lb-caption">—</h3>
+      <div class="lb-tabs" role="tablist">
+        <button class="lb-tab active" type="button" data-tab="images" role="tab">Images</button>
+        <button class="lb-tab" type="button" data-tab="video" role="tab" id="lb-tab-video">Video</button>
+      </div>
     </div>
 
-    <div class="lb-images">
-      <div class="lb-image-col">
-        <div class="lb-label">Annotated <span class="lb-sub">detection overlay</span></div>
-        <img id="lb-img-annotated" alt="annotated snapshot">
-      </div>
-      <div class="lb-image-col">
-        <div class="lb-label">Original <span class="lb-sub">clean frame</span></div>
-        <img id="lb-img-raw" alt="raw snapshot"
-             onerror="this.style.display='none'; this.parentElement.classList.add('no-raw');">
-        <div class="lb-noraw">Raw frame not available
-          <small>(captured before the worker started saving raw snapshots)</small>
+    <div class="lb-pane active" data-pane="images">
+      <div class="lb-images">
+        <div class="lb-image-col">
+          <div class="lb-label">Annotated <span class="lb-sub">detection overlay</span></div>
+          <img id="lb-img-annotated" alt="annotated snapshot">
+        </div>
+        <div class="lb-image-col">
+          <div class="lb-label">Original <span class="lb-sub">clean frame</span></div>
+          <img id="lb-img-raw" alt="raw snapshot"
+               onerror="this.style.display='none'; this.parentElement.classList.add('no-raw');">
+          <div class="lb-noraw">Raw frame not available
+            <small>(captured before the worker started saving raw snapshots)</small>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="lb-clip-wrap" id="lb-clip-wrap" style="display:none;">
-      <div class="lb-label">Clip <span class="lb-sub">±N s of audio/video around the capture</span></div>
-      <video id="lb-clip" controls preload="metadata" playsinline></video>
+    <div class="lb-pane" data-pane="video">
+      <div class="lb-clip-wrap" id="lb-clip-wrap">
+        <div class="lb-label">Clip <span class="lb-sub">±N s of audio/video around the capture</span></div>
+        <video id="lb-clip" controls preload="metadata" playsinline></video>
+        <div class="lb-noclip" id="lb-noclip" style="display:none;">
+          No clip recorded for this snapshot.
+        </div>
+      </div>
     </div>
 
     <div class="lb-params" id="lb-params">
