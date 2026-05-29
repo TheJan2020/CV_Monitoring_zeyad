@@ -539,8 +539,33 @@ def main() -> None:
             # into the BabyTracker, so even though the lock didn't form,
             # the underlying YoloDetection still drew on the stream.
             if baby_tracker is not None:
-                HIGH_CONF_NO_POSE = 0.40
+                # Pose-corroboration filter — two-tier confidence floor:
+                #
+                #   POSE_OK_CONF_FLOOR (0.40): pose model found at least one
+                #     skeleton SOMEWHERE in the frame this iteration. Pose is
+                #     healthy, so an uncorroborated YOLO box at >= 0.40 conf
+                #     is plausible — keep.
+                #
+                #   NO_POSE_CONF_FLOOR (0.85): pose model found nothing
+                #     anywhere. Either (a) frame really has no people, or
+                #     (b) IR/occlusion is hiding everyone. We can't tell from
+                #     YOLO alone — require very strong YOLO conf, otherwise
+                #     drop. This is the rule that catches stuffed-toy /
+                #     bottle / blanket false positives at 0.40-0.65 conf
+                #     that the original single-floor 0.40 let through.
+                #
+                # Real-baby IR detections in this setup observed at 0.22-0.50
+                # — they always have at least head/shoulder keypoints, so
+                # they pass via the corroboration branch, not the floor.
                 KP_CONF_FOR_CORR = 0.15
+                POSE_OK_CONF_FLOOR = 0.40
+                NO_POSE_CONF_FLOOR = 0.85
+
+                pose_present_anywhere = bool(person_poses)
+                no_pose_floor = (
+                    POSE_OK_CONF_FLOOR if pose_present_anywhere
+                    else NO_POSE_CONF_FLOOR
+                )
 
                 def _corroborated_by_pose(det) -> bool:
                     for pp in person_poses:
@@ -562,7 +587,7 @@ def main() -> None:
                     if d.name != "person":
                         kept.append(d)
                         continue
-                    if d.confidence >= HIGH_CONF_NO_POSE or _corroborated_by_pose(d):
+                    if _corroborated_by_pose(d) or d.confidence >= no_pose_floor:
                         kept.append(d)
                     else:
                         dropped_persons += 1
