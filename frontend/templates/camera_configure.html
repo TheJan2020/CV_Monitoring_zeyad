@@ -39,8 +39,11 @@
       </div>
       <p class="cfg-help" style="margin-top:6px;">
         Each clip contains <b>before</b> + <b>after</b> seconds of video around the
-        capture moment, with audio when the RTSP stream carries it. Set the
-        clip slider to <b>0</b> to save snapshots only.
+        capture moment, with audio when the RTSP stream carries it.
+        Clips are only saved when a person is actually detected at capture
+        time — empty-frame snapshots are still kept for the timeline but
+        skip the clip. Set the clip slider to <b>0</b> to disable clip
+        recording entirely.
       </p>
     </section>
 

@@ -385,9 +385,14 @@ class StateRecorderThread(threading.Thread):
                     if not snap_id:
                         continue
                     self._last_snapshot[cam_id] = now
-                    # Schedule clip extraction once the forward buffer fills.
+                    # Only schedule clip extraction if a person (after pose
+                    # corroboration / stale-lock filter) was actually in
+                    # frame at capture time. Empty-frame moments still get
+                    # the snapshot for the timeline but skip the costly
+                    # clip extraction + disk write.
+                    persons_now = int(s.get("person_count", 0) or 0)
                     clip_s = int(cam_cfg.get("clip_seconds", DEFAULT_CLIP_SECONDS) or DEFAULT_CLIP_SECONDS)
-                    if clip_s > 0 and self.get_clip_buffer_fn:
+                    if clip_s > 0 and persons_now > 0 and self.get_clip_buffer_fn:
                         self._pending_clips.append(
                             (now + clip_s + 1, cam_id, int(snap_id), now, clip_s, clip_s)
                         )
