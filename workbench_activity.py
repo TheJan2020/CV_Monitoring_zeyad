@@ -524,10 +524,38 @@ def main() -> None:
             # into yolo_detections so downstream rendering shows it.
             baby_lock = None
             if baby_tracker is not None:
-                person_evidence = [
-                    ((d.x1, d.y1, d.x2, d.y2), float(d.confidence))
-                    for d in yolo_detections if d.name == "person"
-                ]
+                # Pose corroboration: a low-confidence YOLO person box only
+                # counts as real-baby evidence if at least one pose keypoint
+                # falls inside it. High-confidence boxes (>= 0.40) bypass
+                # this — they're strong enough on their own. This is the
+                # IR/night-vision fix: real partial babies still produce
+                # head/shoulder keypoints; stuffed toys and patterned
+                # blankets produce none.
+                HIGH_CONF_NO_POSE = 0.40
+                KP_CONF_FOR_CORR = 0.15
+
+                def _corroborated_by_pose(det) -> bool:
+                    for pp in person_poses:
+                        if pp.keypoints_xy is None or pp.keypoints_conf is None:
+                            continue
+                        n = min(len(pp.keypoints_xy), len(pp.keypoints_conf))
+                        for i in range(n):
+                            if float(pp.keypoints_conf[i]) < KP_CONF_FOR_CORR:
+                                continue
+                            kx = float(pp.keypoints_xy[i][0])
+                            ky = float(pp.keypoints_xy[i][1])
+                            if det.x1 <= kx <= det.x2 and det.y1 <= ky <= det.y2:
+                                return True
+                    return False
+
+                person_evidence: list = []
+                for d in yolo_detections:
+                    if d.name != "person":
+                        continue
+                    if d.confidence >= HIGH_CONF_NO_POSE or _corroborated_by_pose(d):
+                        person_evidence.append(
+                            ((d.x1, d.y1, d.x2, d.y2), float(d.confidence))
+                        )
                 baby_lock = baby_tracker.observe(
                     t0,
                     person_evidence,
