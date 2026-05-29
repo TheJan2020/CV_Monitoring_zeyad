@@ -378,7 +378,8 @@ function renderTotals(totals) {
       const lbl = TRACK_LABEL[track]?.[value] || value;
       const pct = ((sec / totalSec) * 100).toFixed(0);
       return `
-        <div class="totals-row">
+        <div class="totals-row" data-track="${track}" data-value="${value}" role="button"
+             title="Click to filter snapshots by ${lbl}">
           <span class="totals-swatch ${VALUE_CLASS(track, value)}"></span>
           <span class="totals-name">${lbl}</span>
           <span class="totals-dur">${fmtDur(sec)}</span>
@@ -387,18 +388,86 @@ function renderTotals(totals) {
     }).join("");
     return `<div class="totals-col"><h4>${cap(track)}</h4>${rows}</div>`;
   }).join("");
+
+  // Wire row clicks for snapshot filtering.
+  totalsDiv.querySelectorAll(".totals-row").forEach((el) =>
+    el.addEventListener("click", () =>
+      setSnapshotFilter(el.dataset.track, el.dataset.value),
+    ),
+  );
+  updateTotalsHighlight();
+}
+
+// ---- snapshot filtering by clicking a totals row ---------------------
+
+let _activeFilter = null; // { track: 'activity', value: 'asleep' } | null
+const totalsClearBtn = document.getElementById("totals-clear");
+
+function setSnapshotFilter(track, value) {
+  if (_activeFilter && _activeFilter.track === track && _activeFilter.value === value) {
+    _activeFilter = null;
+  } else {
+    _activeFilter = { track, value };
+  }
+  renderSnapshots(_allSnapsForFilter);  // re-render with the new filter
+  updateTotalsHighlight();
+}
+
+function clearSnapshotFilter() {
+  if (!_activeFilter) return;
+  _activeFilter = null;
+  renderSnapshots(_allSnapsForFilter);
+  updateTotalsHighlight();
+}
+
+function updateTotalsHighlight() {
+  totalsDiv.querySelectorAll(".totals-row").forEach((el) => {
+    const t = el.dataset.track;
+    const v = el.dataset.value;
+    const isActive = !!_activeFilter && _activeFilter.track === t && _activeFilter.value === v;
+    el.classList.toggle("active", isActive);
+  });
+  if (totalsClearBtn) {
+    totalsClearBtn.style.display = _activeFilter ? "" : "none";
+  }
+}
+
+if (totalsClearBtn) {
+  totalsClearBtn.addEventListener("click", clearSnapshotFilter);
 }
 
 let _currentSnaps = [];
+let _allSnapsForFilter = [];
 
 function renderSnapshots(snaps) {
-  _currentSnaps = snaps;
-  snapCount.textContent = snaps.length ? `· ${snaps.length}` : "";
+  // `snaps` here is the full set for the day; the filter (if any) is
+  // applied at render time so toggling/clearing reruns without a refetch.
+  _allSnapsForFilter = snaps;
+  let visible = snaps;
+  if (_activeFilter) {
+    visible = snaps.filter(
+      (s) => s.state && s.state[_activeFilter.track] === _activeFilter.value,
+    );
+  }
+  _currentSnaps = visible;
+
+  // Count badge: "· 50" normally; "· 12 of 50 · activity: asleep" when filtered.
   if (snaps.length === 0) {
-    snapGrid.innerHTML = '<p class="muted">No snapshots saved for this day yet.</p>';
+    snapCount.textContent = "";
+  } else if (_activeFilter) {
+    const lbl = TRACK_LABEL[_activeFilter.track]?.[_activeFilter.value] || _activeFilter.value;
+    snapCount.textContent = `· ${visible.length} of ${snaps.length} · ${_activeFilter.track}: ${lbl}`;
+  } else {
+    snapCount.textContent = `· ${snaps.length}`;
+  }
+
+  if (visible.length === 0) {
+    snapGrid.innerHTML = _activeFilter
+      ? '<p class="muted">No snapshots match this filter.</p>'
+      : '<p class="muted">No snapshots saved for this day yet.</p>';
     return;
   }
-  snapGrid.innerHTML = snaps.map((s, idx) => {
+  snapGrid.innerHTML = visible.map((s, idx) => {
     const url = `/api/snapshots/${s.file_rel}`;
     const clipDot = s.clip_rel
       ? '<span class="snap-clipdot" title="Has audio/video clip">▶</span>' : "";

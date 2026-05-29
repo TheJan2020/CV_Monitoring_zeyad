@@ -266,8 +266,17 @@
   grid-template-columns: 16px 1fr auto 38px;
   gap: 8px;
   align-items: center;
-  padding: 4px 0;
+  padding: 4px 6px;
   font-size: 13px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s, outline-color 0.12s;
+  outline: 1px solid transparent;
+}
+.totals-row:hover { background: rgba(255, 255, 255, 0.04); }
+.totals-row.active {
+  background: rgba(11, 176, 186, 0.14);
+  outline-color: var(--accent);
 }
 
 .totals-swatch {
@@ -279,6 +288,66 @@
 .totals-name { color: var(--text); }
 .totals-dur { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .totals-pct { color: var(--text-dim); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ----- Fixed-bottom Totals panel ----- */
+/* The Totals section pins to the bottom of the viewport so the legend
+   stays visible while the user scrolls through snapshots. Click any
+   row to filter snapshots by that activity/posture/motion value. */
+#totals-section {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.22);
+  padding: 10px 18px 12px;
+  margin: 0;
+  max-height: 38vh;
+  overflow-y: auto;
+}
+
+#totals-section .totals-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+#totals-section h3 {
+  font-size: 11px;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.totals-clear {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.totals-clear:hover { background: rgba(11, 176, 186, 0.12); }
+
+#totals-section .totals-col {
+  padding: 10px 12px;
+}
+#totals-section .totals-col h4 {
+  margin-bottom: 6px;
+}
+
+/* Reserve space at the bottom of the scrollable body so the last row
+   of snapshots isn't permanently hidden behind the fixed Totals bar. */
+#hist-body {
+  padding-bottom: 280px;
+}
 
 /* ----- Snapshots ----- */
 .snap-grid {
