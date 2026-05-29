@@ -1001,12 +1001,36 @@ def _det_iou(a: YoloDetection, b: YoloDetection) -> float:
     return inter / (area_a + area_b - inter)
 
 
+def _det_iomin(a: YoloDetection, b: YoloDetection) -> float:
+    """Intersection-over-min-area. 1.0 means one box is entirely inside
+    the other (regardless of how much bigger the outer one is). Catches
+    the 'head box inside whole-body box' case that IoU misses."""
+    ix1 = max(a.x1, b.x1)
+    iy1 = max(a.y1, b.y1)
+    ix2 = min(a.x2, b.x2)
+    iy2 = min(a.y2, b.y2)
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0.0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    area_a = max(1, (a.x2 - a.x1) * (a.y2 - a.y1))
+    area_b = max(1, (b.x2 - b.x1) * (b.y2 - b.y1))
+    return inter / min(area_a, area_b)
+
+
 def dedupe_detections(
     detections: list[YoloDetection],
     *,
     iou_threshold: float = 0.45,
+    containment_threshold: float | None = None,
 ) -> list[YoloDetection]:
-    """Per-class greedy NMS — removes duplicate boxes on the same person."""
+    """Per-class greedy NMS — removes duplicate boxes on the same person.
+
+    When ``containment_threshold`` is set (e.g. 0.70), two boxes are also
+    treated as duplicates if the smaller one is mostly inside the larger
+    (IoMin > threshold). This catches YOLO emitting both a whole-body
+    box and a head-only box for the same baby at confidences too far
+    apart for plain IoU NMS to merge them.
+    """
     by_name: dict[str, list[YoloDetection]] = {}
     for d in detections:
         by_name.setdefault(d.name, []).append(d)
@@ -1016,7 +1040,18 @@ def dedupe_detections(
         group = sorted(group, key=lambda d: -d.confidence)
         kept: list[YoloDetection] = []
         for d in group:
-            if all(_det_iou(d, k) < iou_threshold for k in kept):
+            is_dup = False
+            for k in kept:
+                if _det_iou(d, k) >= iou_threshold:
+                    is_dup = True
+                    break
+                if (
+                    containment_threshold is not None
+                    and _det_iomin(d, k) >= containment_threshold
+                ):
+                    is_dup = True
+                    break
+            if not is_dup:
                 kept.append(d)
         out.extend(kept)
     return out
@@ -1796,9 +1831,21 @@ def consolidate_person_detections(
     """
     persons = [d for d in detections if d.name == "person"]
     other = [d for d in detections if d.name != "person"]
-    persons = dedupe_detections(persons, iou_threshold=iou_threshold)
+    # Containment threshold catches "head box inside whole-body box" —
+    # YOLO sometimes emits both for the same baby at a low confidence
+    # spread, and pure-IoU NMS lets them both through (small box's area
+    # is too low for its overlap with the big box to clear IoU 0.45).
+    persons = dedupe_detections(
+        persons,
+        iou_threshold=iou_threshold,
+        containment_threshold=0.70,
+    )
     persons = filter_plausible_person_boxes(persons, frame_w, frame_h)
-    persons = dedupe_detections(persons, iou_threshold=iou_threshold)
+    persons = dedupe_detections(
+        persons,
+        iou_threshold=iou_threshold,
+        containment_threshold=0.70,
+    )
     primary = select_primary_person(persons, roi, frame_w, frame_h)
 
     marked: list[YoloDetection] = []
