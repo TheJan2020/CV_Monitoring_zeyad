@@ -155,13 +155,28 @@ function renderHourTicks() {
 }
 
 function renderViewBadge() {
-  const badge = document.getElementById("view-badge");
   const span = _view.endTs - _view.startTs;
   const isFull = span >= 86400 - 1;
-  badge.innerHTML =
-    `<b>${fmtClock(_view.startTs)} → ${fmtClock(_view.endTs)}</b>` +
-    ` · <span class="view-span">${fmtSpan(span)}</span>` +
-    (isFull ? "" : ' · <span class="zoomed-dot">zoomed</span>');
+  const fromI = document.getElementById("view-from");
+  const toI   = document.getElementById("view-to");
+  // Don't yank a value out from under the user while they're typing.
+  if (document.activeElement !== fromI) fromI.value = fmtHHMM(_view.startTs);
+  if (document.activeElement !== toI)   toI.value   = fmtHHMM(_view.endTs);
+  document.getElementById("view-span").textContent = fmtSpan(span);
+  document.getElementById("zoomed-pill").style.display = isFull ? "none" : "";
+}
+
+function fmtHHMM(unix) {
+  const d = new Date(Number(unix) * 1000);
+  return String(d.getHours()).padStart(2, "0") + ":" +
+         String(d.getMinutes()).padStart(2, "0");
+}
+
+function parseHHMM(s) {
+  if (!s || !/^\d{1,2}:\d{2}$/.test(s)) return null;
+  const [h, m] = s.split(":").map(Number);
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 3600 + m * 60;
 }
 
 function filterSnapsByView(snaps) {
@@ -322,6 +337,31 @@ function attachBarInteractions() {
   document.getElementById("zoom-in").addEventListener("click", () => zoomAround(0.5, 0.5));
   document.getElementById("zoom-out").addEventListener("click", () => zoomAround(0.5, 2.0));
   document.getElementById("zoom-reset").addEventListener("click", resetView);
+
+  // Manual time range inputs — typing/picking a value sets the view directly.
+  document.getElementById("view-from").addEventListener("change", (e) => {
+    const sec = parseHHMM(e.target.value);
+    if (sec === null || !_view) return;
+    const [dayStart] = dayBoundsTs();
+    let newStart = dayStart + sec;
+    let newEnd   = _view.endTs;
+    if (newStart >= newEnd - MIN_VIEW_SPAN) {
+      newEnd = newStart + MIN_VIEW_SPAN;          // push the right edge out
+    }
+    setView(newStart, newEnd);
+  });
+  document.getElementById("view-to").addEventListener("change", (e) => {
+    const sec = parseHHMM(e.target.value);
+    if (sec === null || !_view) return;
+    const [dayStart] = dayBoundsTs();
+    let newEnd   = dayStart + sec;
+    let newStart = _view.startTs;
+    if (newEnd <= newStart + MIN_VIEW_SPAN) {
+      newStart = newEnd - MIN_VIEW_SPAN;          // pull the left edge back
+    }
+    if (newEnd > dayStart + 86400) newEnd = dayStart + 86400;
+    setView(newStart, newEnd);
+  });
 }
 
 attachBarInteractions();

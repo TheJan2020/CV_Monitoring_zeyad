@@ -23,7 +23,15 @@
   <p class="muted" id="hist-summary">Select a camera to see its history.</p>
 
   <div class="view-controls" id="view-controls">
-    <span class="view-badge" id="view-badge">—</span>
+    <span class="view-range-inputs" title="Type to set the visible time range">
+      <input type="time" id="view-from" step="60" aria-label="From time">
+      <span class="view-arrow">→</span>
+      <input type="time" id="view-to"   step="60" aria-label="To time">
+    </span>
+    <span class="view-meta">
+      <span class="view-span" id="view-span">—</span>
+      <span class="zoomed-dot" id="zoomed-pill" style="display:none;">zoomed</span>
+    </span>
     <span class="view-hint">scroll to zoom · drag to pan · double-click to reset</span>
     <div class="view-btns">
       <button class="btn btn-secondary" id="zoom-out" title="Zoom out (−)">−</button>

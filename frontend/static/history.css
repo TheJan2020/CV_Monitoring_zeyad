@@ -60,15 +60,49 @@
   flex-wrap: wrap;
 }
 
-.view-badge {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+.view-range-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition: border-color 0.12s;
 }
 
-.view-badge b {
+.view-range-inputs:hover { border-color: var(--surface-3); }
+.view-range-inputs:focus-within { border-color: var(--accent); }
+
+.view-range-inputs input[type="time"] {
+  background: transparent;
+  border: 0;
   color: var(--text);
-  font-weight: 600;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  width: 68px;
+  padding: 0;
+  text-align: center;
+  outline: none;
+  color-scheme: inherit;
+}
+
+.view-range-inputs input[type="time"]:hover { color: var(--accent); }
+
+.view-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.view-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .view-span {
