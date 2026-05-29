@@ -289,10 +289,11 @@
 .totals-dur { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .totals-pct { color: var(--text-dim); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
 
-/* ----- Fixed-bottom Totals panel ----- */
-/* The Totals section pins to the bottom of the viewport so the legend
-   stays visible while the user scrolls through snapshots. Click any
-   row to filter snapshots by that activity/posture/motion value. */
+/* ----- Fixed-bottom Totals panel (compact) ----- */
+/* Pinned to the bottom of the viewport so the legend stays visible
+   while scrolling. Each track is collapsed into a single horizontal
+   row of clickable pills; click a pill to filter snapshots by that
+   value. */
 #totals-section {
   position: fixed;
   bottom: 0;
@@ -301,10 +302,10 @@
   z-index: 50;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.22);
-  padding: 10px 18px 12px;
+  box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.20);
+  padding: 5px 12px 7px;
   margin: 0;
-  max-height: 38vh;
+  max-height: 28vh;
   overflow-y: auto;
 }
 
@@ -312,11 +313,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 3px;
 }
 
 #totals-section h3 {
-  font-size: 11px;
+  font-size: 9.5px;
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -327,26 +328,59 @@
   background: transparent;
   border: 1px solid var(--accent);
   color: var(--accent);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  padding: 3px 10px;
+  padding: 1px 8px;
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.12s;
 }
 .totals-clear:hover { background: rgba(11, 176, 186, 0.12); }
 
-#totals-section .totals-col {
-  padding: 10px 12px;
-}
-#totals-section .totals-col h4 {
-  margin-bottom: 6px;
+#totals-section .totals-grid {
+  gap: 8px;
 }
 
-/* Reserve space at the bottom of the scrollable body so the last row
-   of snapshots isn't permanently hidden behind the fixed Totals bar. */
+/* Collapse each track column into one inline row of small pills. */
+#totals-section .totals-col {
+  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+#totals-section .totals-col h4 {
+  margin: 0 4px 0 0;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+#totals-section .totals-row {
+  display: inline-flex;
+  grid-template-columns: none;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  align-items: center;
+  outline-width: 1px;
+}
+#totals-section .totals-swatch {
+  width: 9px;
+  height: 9px;
+}
+#totals-section .totals-name {
+  font-size: 10.5px;
+}
+#totals-section .totals-dur {
+  font-size: 10px;
+}
+/* Drop the percent in the compact layout — duration is enough signal. */
+#totals-section .totals-pct {
+  display: none;
+}
+
+/* Reserve room so the last snapshot row isn't covered by the bar. */
 #hist-body {
-  padding-bottom: 280px;
+  padding-bottom: 140px;
 }
 
 /* ----- Snapshots ----- */
