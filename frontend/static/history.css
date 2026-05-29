@@ -434,6 +434,37 @@
 
 .lb-image-col.no-raw .lb-noraw { display: flex; }
 
+/* ---- Clip player (between images and params) ---- */
+.lb-clip-wrap {
+  padding: 0 14px 14px;
+  background: #000;
+}
+
+.lb-clip-wrap .lb-label {
+  padding: 8px 0;
+}
+
+#lb-clip {
+  width: 100%;
+  max-height: 50vh;
+  background: #111;
+  border-radius: 8px;
+  display: block;
+}
+
+/* ---- Clip badge on snapshot cell ---- */
+.snap-clipdot {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--accent);
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
 /* Parameters panel below the images */
 .lb-params {
   padding: 16px 22px 22px;

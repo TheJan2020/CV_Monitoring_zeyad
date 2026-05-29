@@ -18,7 +18,33 @@
   </div>
 
   <aside class="cfg-panel">
-    <h2 class="cfg-title">Region of interest</h2>
+    <section class="cfg-history">
+      <h2 class="cfg-title">History recording</h2>
+      <p class="cfg-help">
+        When enabled, snapshots (annotated + raw) plus a short audio-video
+        clip are saved on a regular cadence so you can review what happened on
+        the History page.
+      </p>
+      <label class="cfg-check">
+        <input type="checkbox" id="save-history" {% if camera.save_history %}checked{% endif %}>
+        <span><b>Save history</b> for this camera</span>
+      </label>
+      <div class="cfg-field">
+        <label for="capture-interval">Capture every <b id="ci-val">{{ camera.capture_interval_s }}</b>s</label>
+        <input id="capture-interval" type="range" min="5" max="600" step="5" value="{{ camera.capture_interval_s }}">
+      </div>
+      <div class="cfg-field">
+        <label for="clip-seconds">Clip span ±<b id="cs-val">{{ camera.clip_seconds }}</b>s around capture</label>
+        <input id="clip-seconds" type="range" min="0" max="20" step="1" value="{{ camera.clip_seconds }}">
+      </div>
+      <p class="cfg-help" style="margin-top:6px;">
+        Each clip contains <b>before</b> + <b>after</b> seconds of video around the
+        capture moment, with audio when the RTSP stream carries it. Set the
+        clip slider to <b>0</b> to save snapshots only.
+      </p>
+    </section>
+
+    <h2 class="cfg-title" style="margin-top:24px;">Region of interest</h2>
     <p class="cfg-help">
       Draw the area where detection should run. Outside the shape is ignored.
     </p>

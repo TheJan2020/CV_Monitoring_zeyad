@@ -400,9 +400,12 @@ function renderSnapshots(snaps) {
   }
   snapGrid.innerHTML = snaps.map((s, idx) => {
     const url = `/api/snapshots/${s.file_rel}`;
+    const clipDot = s.clip_rel
+      ? '<span class="snap-clipdot" title="Has audio/video clip">▶</span>' : "";
     return `
       <div class="snap-cell" data-idx="${idx}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
+        ${clipDot}
         <div class="snap-time">${fmtClock(s.captured_at)}</div>
       </div>`;
   }).join("");
@@ -430,6 +433,20 @@ function openLightbox(snap) {
   // Set sources fresh
   document.getElementById("lb-img-annotated").src = annotated;
   document.getElementById("lb-img-raw").src = raw;
+
+  // Video clip: show if the snapshot has one, otherwise hide the block.
+  const clipWrap = document.getElementById("lb-clip-wrap");
+  const clipEl   = document.getElementById("lb-clip");
+  if (snap.clip_rel) {
+    clipEl.src = `/api/snapshots/${snap.clip_rel}`;
+    clipEl.load();
+    clipWrap.style.display = "";
+  } else {
+    clipEl.removeAttribute("src");
+    clipEl.load();
+    clipWrap.style.display = "none";
+  }
+
   // Parameters
   document.getElementById("lb-params").innerHTML = renderParams(snap.state);
   lightbox.classList.remove("hidden");
@@ -470,7 +487,11 @@ function renderParams(state) {
   return rows.join("");
 }
 lightbox.querySelectorAll("[data-close]").forEach((el) =>
-  el.addEventListener("click", () => lightbox.classList.add("hidden")),
+  el.addEventListener("click", () => {
+    const clipEl = document.getElementById("lb-clip");
+    try { clipEl.pause(); } catch (e) {}
+    lightbox.classList.add("hidden");
+  }),
 );
 
 // ---- helpers ---------------------------------------------------------

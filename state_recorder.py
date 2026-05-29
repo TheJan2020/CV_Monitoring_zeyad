@@ -29,7 +29,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 POLL_INTERVAL_S = 1.5
-SNAPSHOT_INTERVAL_S = 30.0
+DEFAULT_SNAPSHOT_INTERVAL_S = 30.0
+DEFAULT_CLIP_SECONDS = 5
 
 _REPO = Path(__file__).resolve().parent
 _DB_PATH = _REPO / "config" / "timeline.db"
@@ -79,10 +80,12 @@ def _open() -> sqlite3.Connection:
             "CREATE INDEX IF NOT EXISTS idx_snapshots_cam_ts "
             "ON snapshots(camera_id, captured_at)"
         )
-        # Lightweight migration for DBs created before state_json existed.
+        # Lightweight migrations for DBs created before columns existed.
         cols = [r[1] for r in _db.execute("PRAGMA table_info(snapshots)").fetchall()]
         if "state_json" not in cols:
             _db.execute("ALTER TABLE snapshots ADD COLUMN state_json TEXT")
+        if "clip_rel" not in cols:
+            _db.execute("ALTER TABLE snapshots ADD COLUMN clip_rel TEXT")
     return _db
 
 
@@ -147,7 +150,17 @@ def _fetch(url: str, timeout: float = 4.0) -> bytes | None:
         return None
 
 
-def take_snapshot(camera_id: str, worker_base_url: str) -> bool:
+def update_snapshot_clip(snapshot_id: int, clip_rel: str) -> None:
+    """Stamp an existing snapshot row with the path of its newly-extracted clip."""
+    with _LOCK:
+        db = _open()
+        db.execute(
+            "UPDATE snapshots SET clip_rel = ? WHERE id = ?",
+            (clip_rel, snapshot_id),
+        )
+
+
+def take_snapshot(camera_id: str, worker_base_url: str) -> int | None:
     """Pull annotated + raw frames + state from the worker and save both
     JPEGs to disk plus an index row (with state_json) in SQLite.
 
@@ -185,12 +198,12 @@ def take_snapshot(camera_id: str, worker_base_url: str) -> bool:
     file_rel = f"{camera_id}/{day}/{base}.jpg"
     with _LOCK:
         db = _open()
-        db.execute(
+        cur = db.execute(
             "INSERT INTO snapshots (camera_id, captured_at, file_rel, state_json) "
             "VALUES (?, ?, ?, ?)",
             (camera_id, now, file_rel, state_json),
         )
-    return True
+        return int(cur.lastrowid) if cur.lastrowid else None
 
 
 def snapshot_path(file_rel: str) -> Path:
@@ -236,14 +249,20 @@ def get_snapshots(camera_id: str, day: str) -> list[dict]:
     with _LOCK:
         db = _open()
         rows = db.execute(
-            "SELECT id, captured_at, file_rel, state_json FROM snapshots "
+            "SELECT id, captured_at, file_rel, state_json, clip_rel FROM snapshots "
             "WHERE camera_id=? AND captured_at >= ? AND captured_at < ? "
             "ORDER BY captured_at",
             (camera_id, start_ts, end_ts_bound),
         ).fetchall()
     out: list[dict] = []
     for r in rows:
-        item: dict = {"id": r[0], "captured_at": r[1], "file_rel": r[2], "state": None}
+        item: dict = {
+            "id": r[0],
+            "captured_at": r[1],
+            "file_rel": r[2],
+            "state": None,
+            "clip_rel": r[4],
+        }
         if r[3]:
             try:
                 item["state"] = json.loads(r[3])
@@ -267,24 +286,67 @@ def get_track_totals(camera_id: str, day: str) -> dict[str, dict[str, float]]:
 
 
 class StateRecorderThread(threading.Thread):
-    """Polls each baby worker's /state and records the three tracks +
-    a snapshot every SNAPSHOT_INTERVAL_S seconds."""
+    """Polls each worker's /state. For cameras with ``save_history=True``
+    the recorder writes 3-track activity/posture/motion segments and a
+    snapshot every camera-specific ``capture_interval_s`` seconds; when a
+    ClipBufferManager is also provided it schedules a clip extraction
+    ``clip_seconds + 1`` later so the forward window has time to land in
+    the ring buffer.
+    """
 
-    def __init__(self, get_workers_fn) -> None:
+    def __init__(
+        self,
+        get_workers_fn,
+        get_camera_fn=None,
+        get_clip_buffer_fn=None,
+    ) -> None:
         super().__init__(daemon=True, name="StateRecorder")
         self.get_workers_fn = get_workers_fn
+        self.get_camera_fn = get_camera_fn
+        self.get_clip_buffer_fn = get_clip_buffer_fn
         self._stop = threading.Event()
         self._last_snapshot: dict[str, float] = {}
+        # Queued clip extractions: list of (extract_at, cam_id, snap_id,
+        # anchor_ts, before_s, after_s).
+        self._pending_clips: list[tuple[float, str, int, float, int, int]] = []
 
     def stop(self) -> None:
         self._stop.set()
 
+    def _drain_pending_clips(self, now: float) -> None:
+        """Run extractions that have come due. Mutates self._pending_clips."""
+        if not self._pending_clips:
+            return
+        still: list[tuple[float, str, int, float, int, int]] = []
+        for item in self._pending_clips:
+            extract_at, cam_id, snap_id, anchor_ts, before_s, after_s = item
+            if now < extract_at:
+                still.append(item)
+                continue
+            buf = self.get_clip_buffer_fn(cam_id) if self.get_clip_buffer_fn else None
+            if buf is None or not buf.alive():
+                continue  # buffer gone — give up on this one
+            try:
+                dt = datetime.fromtimestamp(anchor_ts)
+                day = dt.strftime("%Y-%m-%d")
+                fname = dt.strftime("%H%M%S") + ".mp4"
+                out_path = SNAPSHOTS_DIR / cam_id / day / fname
+                if buf.extract_clip(out_path, anchor_ts, before_s, after_s):
+                    update_snapshot_clip(snap_id, f"{cam_id}/{day}/{fname}")
+            except Exception:
+                pass
+        self._pending_clips = still
+
     def run(self) -> None:
         init()
         while not self._stop.is_set():
+            now = time.time()
+            try:
+                self._drain_pending_clips(now)
+            except Exception:
+                pass
             try:
                 workers = self.get_workers_fn() or {}
-                now = time.time()
                 for cam_id, w in workers.items():
                     try:
                         if not w.alive():
@@ -293,8 +355,16 @@ class StateRecorderThread(threading.Thread):
                             s = json.loads(r.read())
                     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
                         continue
-                    # Only baby cameras get recorded.
-                    if (s.get("camera_type") or "") != "baby":
+                    cam_cfg = (
+                        self.get_camera_fn(cam_id) if self.get_camera_fn else None
+                    ) or {}
+                    # Per-camera opt-in. Fallback to legacy behaviour (baby cameras)
+                    # when the flag isn't present yet.
+                    save_history = cam_cfg.get(
+                        "save_history",
+                        (s.get("camera_type") or "") == "baby",
+                    )
+                    if not save_history:
                         continue
                     activity = s.get("activity") or "out_of_frame"
                     posture = s.get("posture") or "unknown"
@@ -303,13 +373,24 @@ class StateRecorderThread(threading.Thread):
                         record_state(cam_id, activity, posture, motion)
                     except Exception:
                         pass
-                    last_snap = self._last_snapshot.get(cam_id, 0.0)
-                    if now - last_snap >= SNAPSHOT_INTERVAL_S:
-                        try:
-                            if take_snapshot(cam_id, w.url):
-                                self._last_snapshot[cam_id] = now
-                        except Exception:
-                            pass
+                    interval = float(
+                        cam_cfg.get("capture_interval_s", DEFAULT_SNAPSHOT_INTERVAL_S)
+                    )
+                    if now - self._last_snapshot.get(cam_id, 0.0) < interval:
+                        continue
+                    try:
+                        snap_id = take_snapshot(cam_id, w.url)
+                    except Exception:
+                        snap_id = None
+                    if not snap_id:
+                        continue
+                    self._last_snapshot[cam_id] = now
+                    # Schedule clip extraction once the forward buffer fills.
+                    clip_s = int(cam_cfg.get("clip_seconds", DEFAULT_CLIP_SECONDS) or DEFAULT_CLIP_SECONDS)
+                    if clip_s > 0 and self.get_clip_buffer_fn:
+                        self._pending_clips.append(
+                            (now + clip_s + 1, cam_id, int(snap_id), now, clip_s, clip_s)
+                        )
             except Exception:
                 pass
             self._stop.wait(POLL_INTERVAL_S)

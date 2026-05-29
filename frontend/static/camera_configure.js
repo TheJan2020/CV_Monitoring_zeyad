@@ -250,6 +250,14 @@ function renderPointsList() {
 renderPointsList();
 
 // === save ===============================================================
+// Live label updates for the History sliders
+const ciSlider = document.getElementById("capture-interval");
+const csSlider = document.getElementById("clip-seconds");
+const ciVal    = document.getElementById("ci-val");
+const csVal    = document.getElementById("cs-val");
+if (ciSlider && ciVal) ciSlider.addEventListener("input", () => { ciVal.textContent = ciSlider.value; });
+if (csSlider && csVal) csSlider.addEventListener("input", () => { csVal.textContent = csSlider.value; });
+
 document.getElementById("btn-save").addEventListener("click", async () => {
   const status = document.getElementById("status");
   status.className = "cfg-status info";
@@ -265,6 +273,11 @@ document.getElementById("btn-save").addEventListener("click", async () => {
   } else {
     body = { roi: rect, roi_polygon: null };
   }
+  // History settings — applied on every save so reloading the worker is enough
+  const saveHistEl = document.getElementById("save-history");
+  if (saveHistEl) body.save_history = saveHistEl.checked;
+  if (ciSlider)   body.capture_interval_s = parseInt(ciSlider.value, 10);
+  if (csSlider)   body.clip_seconds       = parseInt(csSlider.value, 10);
   try {
     const r = await fetch("/api/cameras/" + camId, {
       method: "PATCH",

@@ -164,6 +164,9 @@ def camera_configure(cam_id):
             "category": TYPE_TO_CATEGORY.get(cam_type, "worker"),
             "roi": cam.get("roi") or [0, 0, 1, 1],
             "roi_polygon": cam.get("roi_polygon"),
+            "save_history": bool(cam.get("save_history", cam_type == "baby")),
+            "capture_interval_s": int(cam.get("capture_interval_s", 30)),
+            "clip_seconds": int(cam.get("clip_seconds", 5)),
         },
     )
 

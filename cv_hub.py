@@ -56,6 +56,7 @@ from config_store import (
     verify_user,
 )
 import state_recorder
+import clip_recorder
 from datetime import datetime
 
 _REPO = Path(__file__).parent.resolve()
@@ -170,6 +171,16 @@ BABY_DEFAULTS = {
     "audio_enabled": True,
     "audio_url": "",  # blank = use rtsp_url. Override when the sub stream is
                       # video-only and audio lives on the main stream URL.
+    "save_history": True,
+    "capture_interval_s": 30,
+    "clip_seconds": 5,
+}
+
+# Per-camera history defaults for general-purpose cameras — opt-in.
+GENERAL_HISTORY_DEFAULTS = {
+    "save_history": False,
+    "capture_interval_s": 60,
+    "clip_seconds": 5,
 }
 
 
@@ -262,6 +273,26 @@ class CameraSubprocess:
 
 _workers: dict[str, CameraSubprocess] = {}
 
+# Per-camera ffmpeg HLS ring buffers (only created for cameras with
+# save_history=True). Used by state_recorder to extract pre/post clips.
+_clip_buffer_mgr = clip_recorder.ClipBufferManager(_REPO / "config")
+
+
+def _reconcile_clip_buffers() -> None:
+    """Recompute desired set of clip ring buffers from current camera config."""
+    try:
+        _clip_buffer_mgr.update(load_cameras())
+    except Exception as e:
+        print(f"[hub] clip buffer reconcile failed: {e}", file=sys.stderr)
+
+
+def _camera_for_recorder(cam_id: str) -> dict | None:
+    return get_camera(cam_id)
+
+
+def _clip_buffer_for_recorder(cam_id: str):
+    return _clip_buffer_mgr.get(cam_id)
+
 
 def _start_all_workers() -> None:
     for cam in load_cameras():
@@ -309,6 +340,8 @@ def reload_camera_worker(camera_id: str) -> None:
             _workers[camera_id] = w
             w.start()
             print(f"[hub] reloaded worker {camera_id} -> {w.url}")
+    # Always reconcile clip buffers — save_history might have toggled.
+    _reconcile_clip_buffers()
 
 
 # ---- Flask hub ------------------------------------------------------------
@@ -1502,6 +1535,15 @@ def api_create_camera():
         "pose_state": data.get("pose_state") or type_defaults["pose_state"],
         "audio_enabled": bool(data.get("audio_enabled", cam_type == "baby")),
         "audio_url": (data.get("audio_url") or "").strip(),
+        "save_history": bool(data.get("save_history", cam_type == "baby")),
+        "capture_interval_s": int(
+            data.get("capture_interval_s",
+                     BABY_DEFAULTS["capture_interval_s"] if cam_type == "baby"
+                     else GENERAL_HISTORY_DEFAULTS["capture_interval_s"])
+        ),
+        "clip_seconds": int(
+            data.get("clip_seconds", BABY_DEFAULTS["clip_seconds"])
+        ),
     }
     if not cam["rtsp_url"]:
         return jsonify({"error": "rtsp_url is required"}), 400
@@ -1517,7 +1559,9 @@ def api_update_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     merged = dict(existing)
-    for k in ("name", "rtsp_url", "roi", "roi_polygon", "enabled", "thresholds", "detections", "pose_state", "type", "audio_enabled", "audio_url"):
+    for k in ("name", "rtsp_url", "roi", "roi_polygon", "enabled", "thresholds",
+              "detections", "pose_state", "type", "audio_enabled", "audio_url",
+              "save_history", "capture_interval_s", "clip_seconds"):
         if k in data:
             merged[k] = data[k]
     if "port" in data and data["port"] is not None:
@@ -1568,6 +1612,7 @@ def api_delete_camera(cam_id):
         w.stop()
     if not remove_camera(cam_id):
         return jsonify({"error": "not found"}), 404
+    _reconcile_clip_buffers()
     return jsonify({"deleted": cam_id})
 
 
@@ -1648,8 +1693,9 @@ def api_history(cam_id):
 
 @app.route("/api/snapshots/<cam_id>/<path:fname>")
 def api_serve_snapshot(cam_id, fname):
-    """Serve a saved snapshot JPEG from disk. fname is the part after the
-    camera_id segment, e.g. '2026-05-29/142530.jpg'."""
+    """Serve a saved snapshot JPEG (or clip MP4) from disk. ``fname`` is the
+    part after the camera_id segment, e.g. ``2026-05-29/142530.jpg`` or
+    ``2026-05-29/142530.mp4``."""
     from flask import send_file, abort
     safe = state_recorder.snapshot_path(f"{cam_id}/{fname}")
     base = state_recorder.SNAPSHOTS_DIR.resolve()
@@ -1657,8 +1703,14 @@ def api_serve_snapshot(cam_id, fname):
         return abort(403)
     if not safe.exists():
         return abort(404)
-    return send_file(str(safe), mimetype="image/jpeg",
-                     conditional=True, max_age=3600)
+    lower = str(safe).lower()
+    if lower.endswith(".mp4"):
+        mime = "video/mp4"
+    elif lower.endswith(".webm"):
+        mime = "video/webm"
+    else:
+        mime = "image/jpeg"
+    return send_file(str(safe), mimetype=mime, conditional=True, max_age=3600)
 
 
 @app.route("/api/timeline/<cam_id>")
@@ -1794,7 +1846,13 @@ def main() -> None:
 
     seed_admin_if_missing()
     _start_all_workers()
-    recorder = state_recorder.StateRecorderThread(lambda: dict(_workers))
+    _reconcile_clip_buffers()
+    atexit.register(_clip_buffer_mgr.stop_all)
+    recorder = state_recorder.StateRecorderThread(
+        get_workers_fn=lambda: dict(_workers),
+        get_camera_fn=_camera_for_recorder,
+        get_clip_buffer_fn=_clip_buffer_for_recorder,
+    )
     recorder.start()
     atexit.register(recorder.stop)
 

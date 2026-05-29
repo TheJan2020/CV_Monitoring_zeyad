@@ -189,6 +189,49 @@
 .cfg-status.ok   { background: rgba(24, 160, 82, 0.08); color: var(--success); border: 1px solid rgba(24, 160, 82, 0.2); }
 .cfg-status.err  { background: rgba(226, 48, 71, 0.08); color: var(--error); border: 1px solid rgba(226, 48, 71, 0.2); }
 
+/* ---- History section on the configure page ---- */
+.cfg-history { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+
+.cfg-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.cfg-check input { accent-color: var(--accent); }
+.cfg-check b { color: var(--text); }
+.cfg-check span { color: var(--text-muted); font-size: 12.5px; }
+
+.cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.cfg-field label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.cfg-field label b {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cfg-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .cfg-save { display: flex; }
 .cfg-save .btn { width: 100%; }
 
