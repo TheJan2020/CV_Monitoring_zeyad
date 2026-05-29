@@ -31,9 +31,10 @@ const hoursDiv   = document.getElementById("hist-hours");
 
 let currentCam  = null;
 let currentDate = new Date().toISOString().slice(0, 10);
+let _currentData = null;            // last /api/history payload
+let _view = null;                   // {startTs, endTs} — shared zoom across tracks
+const MIN_VIEW_SPAN = 60;           // 1 minute floor
 dateInput.value = currentDate;
-
-renderHourLabels();
 
 // ---- camera select ---------------------------------------------------
 
@@ -81,14 +82,93 @@ document.getElementById("btn-today").addEventListener("click", () => {
   loadHistory();
 });
 
-// ---- render hour labels (00:00 … 24:00) ------------------------------
+// ---- view (shared zoom/pan across the 3 tracks) ----------------------
 
-function renderHourLabels() {
-  let html = "";
-  for (let h = 0; h <= 24; h += 3) {
-    html += `<span>${String(h).padStart(2, "0")}:00</span>`;
+function dayBoundsTs() {
+  const d = new Date(currentDate + "T00:00:00");
+  return [d.getTime() / 1000, d.getTime() / 1000 + 86400];
+}
+
+function setView(startTs, endTs, doRender = true) {
+  const [dayStart, dayEnd] = dayBoundsTs();
+  let span = Math.max(MIN_VIEW_SPAN, Math.min(86400, endTs - startTs));
+  let s = Math.max(dayStart, startTs);
+  let e = s + span;
+  if (e > dayEnd) { e = dayEnd; s = e - span; if (s < dayStart) s = dayStart; }
+  _view = { startTs: s, endTs: e };
+  if (doRender) rerender();
+}
+
+function resetView() {
+  const [dayStart] = dayBoundsTs();
+  setView(dayStart, dayStart + 86400);
+}
+
+function rerender() {
+  if (!_currentData || !_view) return;
+  ["activity", "posture", "motion"].forEach((track) =>
+    renderBar(track, (_currentData.tracks || {})[track] || []),
+  );
+  renderHourTicks();
+  renderViewBadge();
+  renderSnapshots(filterSnapsByView(_currentData.snapshots || []));
+}
+
+function pickTickStep(span) {
+  if (span >= 18 * 3600) return 3 * 3600;
+  if (span >=  9 * 3600) return 2 * 3600;
+  if (span >=  4 * 3600) return 3600;
+  if (span >=  2 * 3600) return 30 * 60;
+  if (span >=      3600) return 15 * 60;
+  if (span >=      1800) return 5 * 60;
+  if (span >=       300) return 60;
+  return 30;
+}
+
+function fmtTick(unix, step) {
+  const d = new Date(unix * 1000);
+  const HH = String(d.getHours()).padStart(2, "0");
+  const MM = String(d.getMinutes()).padStart(2, "0");
+  return step >= 3600 ? `${HH}:00` : `${HH}:${MM}`;
+}
+
+function fmtSpan(s) {
+  if (s >= 3600) return `${(s / 3600).toFixed(s >= 36000 ? 0 : 1)}h`;
+  if (s >= 60)   return `${Math.round(s / 60)}m`;
+  return `${Math.round(s)}s`;
+}
+
+function renderHourTicks() {
+  const span = _view.endTs - _view.startTs;
+  const step = pickTickStep(span);
+  hoursDiv.innerHTML = "";
+  const firstTick = Math.ceil(_view.startTs / step) * step;
+  for (let t = firstTick; t <= _view.endTs + 0.5; t += step) {
+    const left = ((t - _view.startTs) / span) * 100;
+    if (left < -0.5 || left > 100.5) continue;
+    const el = document.createElement("span");
+    el.className = "tick";
+    el.style.left = left + "%";
+    el.textContent = fmtTick(t, step);
+    hoursDiv.appendChild(el);
   }
-  hoursDiv.innerHTML = html;
+}
+
+function renderViewBadge() {
+  const badge = document.getElementById("view-badge");
+  const span = _view.endTs - _view.startTs;
+  const isFull = span >= 86400 - 1;
+  badge.innerHTML =
+    `<b>${fmtClock(_view.startTs)} → ${fmtClock(_view.endTs)}</b>` +
+    ` · <span class="view-span">${fmtSpan(span)}</span>` +
+    (isFull ? "" : ' · <span class="zoomed-dot">zoomed</span>');
+}
+
+function filterSnapsByView(snaps) {
+  if (!_view) return snaps;
+  return snaps.filter((s) =>
+    s.captured_at >= _view.startTs && s.captured_at < _view.endTs,
+  );
 }
 
 // ---- load + render ---------------------------------------------------
@@ -106,6 +186,15 @@ async function loadHistory() {
     return;
   }
 
+  _currentData = data;
+  // New date = reset zoom to full day. Re-fetches on the same date preserve view.
+  const [dayStart] = dayBoundsTs();
+  if (!_view
+      || _view.startTs < dayStart
+      || _view.endTs > dayStart + 86400 + 1) {
+    setView(dayStart, dayStart + 86400, false);
+  }
+
   const tracks = data.tracks || {};
   const totalSegments = (tracks.activity?.length || 0)
                        + (tracks.posture?.length || 0)
@@ -115,52 +204,50 @@ async function loadHistory() {
     `${totalSegments} segment${totalSegments === 1 ? "" : "s"} · ` +
     `${totalSnaps} snapshot${totalSnaps === 1 ? "" : "s"} for ${data.date}`;
 
-  ["activity", "posture", "motion"].forEach((track) =>
-    renderBar(track, tracks[track] || [], data.date),
-  );
+  rerender();
   renderTotals(data.totals || {});
-  renderSnapshots(data.snapshots || []);
 }
 
-function dayBounds(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  return [d.getTime() / 1000, d.getTime() / 1000 + 86400];
-}
-
-function renderBar(track, segments, date) {
+function renderBar(track, segments) {
+  if (!_view) return;
   const bar = document.querySelector(`.hist-bar[data-track="${track}"]`);
   if (!bar) return;
   const tt = bar.querySelector(".hist-tooltip");
   bar.querySelectorAll(".seg, .nowmark").forEach((el) => el.remove());
-  const [start_ts, end_ts] = dayBounds(date);
+  const span = _view.endTs - _view.startTs;
   for (const s of segments) {
-    const left = ((s.start_ts - start_ts) / 86400) * 100;
-    const width = ((s.end_ts - s.start_ts) / 86400) * 100;
-    if (width < 0.05) continue;
+    // Clip segment to the visible window
+    const cs = Math.max(s.start_ts, _view.startTs);
+    const ce = Math.min(s.end_ts,   _view.endTs);
+    if (ce <= cs) continue;
+    const left  = ((cs - _view.startTs) / span) * 100;
+    const width = ((ce - cs) / span) * 100;
+    if (width < 0.02) continue;
     const el = document.createElement("div");
     el.className = `seg ${VALUE_CLASS(track, s.value)}`;
     el.style.left  = left + "%";
     el.style.width = width + "%";
     el.dataset.track = track;
     el.dataset.value = s.value;
-    el.dataset.start = s.start_ts;
+    el.dataset.start = s.start_ts;     // keep TRUE bounds for tooltip
     el.dataset.end   = s.end_ts;
     el.dataset.duration = s.duration_s;
     bar.appendChild(el);
   }
-  // "now" marker on today
+  // "now" marker on today, only if it falls inside the current view
   const today = new Date().toISOString().slice(0, 10);
-  if (date === today) {
+  if (currentDate === today) {
     const now = Date.now() / 1000;
-    if (now >= start_ts && now <= end_ts) {
+    if (now >= _view.startTs && now <= _view.endTs) {
       const m = document.createElement("div");
       m.className = "nowmark";
-      m.style.left = ((now - start_ts) / 86400) * 100 + "%";
+      m.style.left = ((now - _view.startTs) / span) * 100 + "%";
       bar.appendChild(m);
     }
   }
-  // mouse tooltip
+  // mouse tooltip — show segment's true (un-clipped) bounds
   bar.onmousemove = (e) => {
+    if (bar.classList.contains("dragging")) { tt.classList.remove("show"); return; }
     const t = e.target;
     if (!t.classList.contains("seg")) { tt.classList.remove("show"); return; }
     const lbl = TRACK_LABEL[t.dataset.track]?.[t.dataset.value] || t.dataset.value;
@@ -174,6 +261,70 @@ function renderBar(track, segments, date) {
   };
   bar.onmouseleave = () => tt.classList.remove("show");
 }
+
+// ---- mouse zoom + pan on all three bars (shared view) ----------------
+
+function zoomAround(anchorPct, factor) {
+  if (!_view) return;
+  const span = _view.endTs - _view.startTs;
+  const anchorTs = _view.startTs + span * anchorPct;
+  const newSpan = Math.max(MIN_VIEW_SPAN, Math.min(86400, span * factor));
+  setView(anchorTs - newSpan * anchorPct, anchorTs + newSpan * (1 - anchorPct));
+}
+
+function attachBarInteractions() {
+  document.querySelectorAll(".hist-bar").forEach((bar) => {
+    bar.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const r = bar.getBoundingClientRect();
+      const anchorPct = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      const factor = e.deltaY > 0 ? 1.25 : 0.8;  // out / in
+      zoomAround(anchorPct, factor);
+    }, { passive: false });
+
+    bar.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      resetView();
+    });
+
+    let drag = null;
+    bar.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      drag = {
+        startX: e.clientX,
+        startView: { ..._view },
+        moved: false,
+      };
+      bar.setPointerCapture(e.pointerId);
+    });
+    bar.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.startX;
+      if (Math.abs(dx) > 2) {
+        drag.moved = true;
+        bar.classList.add("dragging");
+        const r = bar.getBoundingClientRect();
+        const span = drag.startView.endTs - drag.startView.startTs;
+        const shift = -(dx / r.width) * span;
+        setView(drag.startView.startTs + shift, drag.startView.endTs + shift);
+      }
+    });
+    bar.addEventListener("pointerup", () => {
+      drag = null;
+      bar.classList.remove("dragging");
+    });
+    bar.addEventListener("pointercancel", () => {
+      drag = null;
+      bar.classList.remove("dragging");
+    });
+  });
+
+  document.getElementById("zoom-in").addEventListener("click", () => zoomAround(0.5, 0.5));
+  document.getElementById("zoom-out").addEventListener("click", () => zoomAround(0.5, 2.0));
+  document.getElementById("zoom-reset").addEventListener("click", resetView);
+}
+
+attachBarInteractions();
 
 function renderTotals(totals) {
   const tracks = ["activity", "posture", "motion"];

@@ -22,6 +22,16 @@
 <div id="hist-body">
   <p class="muted" id="hist-summary">Select a camera to see its history.</p>
 
+  <div class="view-controls" id="view-controls">
+    <span class="view-badge" id="view-badge">—</span>
+    <span class="view-hint">scroll to zoom · drag to pan · double-click to reset</span>
+    <div class="view-btns">
+      <button class="btn btn-secondary" id="zoom-out" title="Zoom out (−)">−</button>
+      <button class="btn btn-secondary" id="zoom-in"  title="Zoom in (+)">+</button>
+      <button class="btn btn-secondary" id="zoom-reset" title="Reset to full day">Reset</button>
+    </div>
+  </div>
+
   <section class="hist-section">
     <h3>Activity</h3>
     <div class="hist-bar" data-track="activity"><div class="hist-tooltip"></div></div>
