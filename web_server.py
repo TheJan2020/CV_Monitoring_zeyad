@@ -24,6 +24,7 @@ from flask import Flask, Response, jsonify, render_template_string
 
 _lock = threading.Lock()
 _latest_jpeg: bytes | None = None
+_latest_jpeg_raw: bytes | None = None
 _latest_state: dict[str, Any] = {}
 _jpeg_quality: int = 80
 _started = False
@@ -36,14 +37,32 @@ def set_jpeg_quality(q: int) -> None:
     _jpeg_quality = max(40, min(95, int(q)))
 
 
-def publish(frame_bgr: Any, state: dict[str, Any]) -> None:
-    """Push one annotated frame + its detection state to the dashboard."""
-    global _latest_jpeg, _latest_state
+def publish(
+    frame_bgr: Any,
+    state: dict[str, Any],
+    raw_frame_bgr: Any | None = None,
+) -> None:
+    """Push the annotated frame + its detection state to the dashboard.
+
+    When ``raw_frame_bgr`` is provided, also encode and expose the
+    unannotated frame at ``/snapshot/raw`` so the History lightbox can
+    show before / after side by side.
+    """
+    global _latest_jpeg, _latest_jpeg_raw, _latest_state
     ok, buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, _jpeg_quality])
     if not ok:
         return
+    raw_bytes: bytes | None = None
+    if raw_frame_bgr is not None:
+        ok_raw, raw_buf = cv2.imencode(
+            ".jpg", raw_frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, _jpeg_quality]
+        )
+        if ok_raw:
+            raw_bytes = raw_buf.tobytes()
     with _lock:
         _latest_jpeg = buf.tobytes()
+        if raw_bytes is not None:
+            _latest_jpeg_raw = raw_bytes
         _latest_state = state
 
 
@@ -215,6 +234,18 @@ def snapshot() -> Any:
         buf = _latest_jpeg
     if buf is None:
         return Response("no frame yet", status=503)
+    return Response(buf, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.route("/snapshot/raw")
+def snapshot_raw() -> Any:
+    """Return the latest UN-annotated frame (the source frame before any
+    detection overlay is drawn). Used by History to render a clean image
+    alongside the annotated one."""
+    with _lock:
+        buf = _latest_jpeg_raw
+    if buf is None:
+        return Response("no raw frame yet", status=503)
     return Response(buf, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
 
 

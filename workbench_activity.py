@@ -883,7 +883,7 @@ def main() -> None:
                             )[:20]
                         ],
                     }
-                    web_server.publish(vis, web_state)
+                    web_server.publish(vis, web_state, raw_frame_bgr=frame)
                 if not args.no_show:
                     cv2.imshow("Workbench activity (explain)", vis)
                     if cv2.waitKey(1) & 0xFF in (ord("q"), ord("Q")):

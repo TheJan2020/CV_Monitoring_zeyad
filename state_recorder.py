@@ -70,7 +70,8 @@ def _open() -> sqlite3.Connection:
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 camera_id   TEXT NOT NULL,
                 captured_at REAL NOT NULL,
-                file_rel    TEXT NOT NULL
+                file_rel    TEXT NOT NULL,
+                state_json  TEXT
             )
             """
         )
@@ -78,6 +79,10 @@ def _open() -> sqlite3.Connection:
             "CREATE INDEX IF NOT EXISTS idx_snapshots_cam_ts "
             "ON snapshots(camera_id, captured_at)"
         )
+        # Lightweight migration for DBs created before state_json existed.
+        cols = [r[1] for r in _db.execute("PRAGMA table_info(snapshots)").fetchall()]
+        if "state_json" not in cols:
+            _db.execute("ALTER TABLE snapshots ADD COLUMN state_json TEXT")
     return _db
 
 
@@ -131,37 +136,59 @@ def record_state(
     _record_track(camera_id, "motion", motion or "unknown", now)
 
 
-def take_snapshot(camera_id: str, worker_base_url: str) -> bool:
-    """Pull /snapshot from the worker and save to disk + DB."""
+def _fetch(url: str, timeout: float = 4.0) -> bytes | None:
     try:
         req = urllib.request.Request(
-            f"{worker_base_url}/snapshot",
-            headers={"User-Agent": "primeanalyze-recorder/1.0"},
+            url, headers={"User-Agent": "primeanalyze-recorder/1.0"},
         )
-        with urllib.request.urlopen(req, timeout=4) as r:
-            data = r.read()
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
     except (urllib.error.URLError, TimeoutError):
+        return None
+
+
+def take_snapshot(camera_id: str, worker_base_url: str) -> bool:
+    """Pull annotated + raw frames + state from the worker and save both
+    JPEGs to disk plus an index row (with state_json) in SQLite.
+
+    The raw image is named <HHMMSS>_raw.jpg next to the annotated
+    <HHMMSS>.jpg; if the worker hasn't yet exposed the raw endpoint we
+    fall back to writing just the annotated copy so old workers keep
+    working.
+    """
+    data_annotated = _fetch(f"{worker_base_url}/snapshot")
+    if not data_annotated:
         return False
-    if not data:
-        return False
+    data_raw = _fetch(f"{worker_base_url}/snapshot/raw")
+    state_bytes = _fetch(f"{worker_base_url}/state", timeout=2.0)
+    state_json: str | None = None
+    if state_bytes:
+        try:
+            state_obj = json.loads(state_bytes)
+            state_json = json.dumps(state_obj)
+        except json.JSONDecodeError:
+            state_json = None
+
     now = time.time()
     dt = datetime.fromtimestamp(now)
     day = dt.strftime("%Y-%m-%d")
-    fname = dt.strftime("%H%M%S") + ".jpg"
+    base = dt.strftime("%H%M%S")
     folder = SNAPSHOTS_DIR / camera_id / day
     folder.mkdir(parents=True, exist_ok=True)
-    fpath = folder / fname
     try:
-        fpath.write_bytes(data)
+        (folder / f"{base}.jpg").write_bytes(data_annotated)
+        if data_raw:
+            (folder / f"{base}_raw.jpg").write_bytes(data_raw)
     except OSError:
         return False
-    file_rel = f"{camera_id}/{day}/{fname}"
+
+    file_rel = f"{camera_id}/{day}/{base}.jpg"
     with _LOCK:
         db = _open()
         db.execute(
-            "INSERT INTO snapshots (camera_id, captured_at, file_rel) "
-            "VALUES (?, ?, ?)",
-            (camera_id, now, file_rel),
+            "INSERT INTO snapshots (camera_id, captured_at, file_rel, state_json) "
+            "VALUES (?, ?, ?, ?)",
+            (camera_id, now, file_rel, state_json),
         )
     return True
 
@@ -209,15 +236,21 @@ def get_snapshots(camera_id: str, day: str) -> list[dict]:
     with _LOCK:
         db = _open()
         rows = db.execute(
-            "SELECT id, captured_at, file_rel FROM snapshots "
+            "SELECT id, captured_at, file_rel, state_json FROM snapshots "
             "WHERE camera_id=? AND captured_at >= ? AND captured_at < ? "
             "ORDER BY captured_at",
             (camera_id, start_ts, end_ts_bound),
         ).fetchall()
-    return [
-        {"id": r[0], "captured_at": r[1], "file_rel": r[2]}
-        for r in rows
-    ]
+    out: list[dict] = []
+    for r in rows:
+        item: dict = {"id": r[0], "captured_at": r[1], "file_rel": r[2], "state": None}
+        if r[3]:
+            try:
+                item["state"] = json.loads(r[3])
+            except json.JSONDecodeError:
+                pass
+        out.append(item)
+    return out
 
 
 def get_track_totals(camera_id: str, day: str) -> dict[str, dict[str, float]]:

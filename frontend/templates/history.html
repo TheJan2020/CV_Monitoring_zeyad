@@ -50,12 +50,35 @@
   </section>
 </div>
 
-<!-- Lightbox -->
+<!-- Lightbox: two images (annotated + raw) + parameters panel -->
 <div id="lightbox" class="lightbox hidden" role="dialog">
   <div class="lb-backdrop" data-close></div>
   <button class="lb-close" data-close aria-label="Close">&times;</button>
-  <img id="lb-image" alt="snapshot">
-  <div id="lb-caption" class="lb-caption"></div>
+
+  <div class="lb-content">
+    <div class="lb-header">
+      <h3 id="lb-caption">—</h3>
+    </div>
+
+    <div class="lb-images">
+      <div class="lb-image-col">
+        <div class="lb-label">Annotated <span class="lb-sub">detection overlay</span></div>
+        <img id="lb-img-annotated" alt="annotated snapshot">
+      </div>
+      <div class="lb-image-col">
+        <div class="lb-label">Original <span class="lb-sub">clean frame</span></div>
+        <img id="lb-img-raw" alt="raw snapshot"
+             onerror="this.style.display='none'; this.parentElement.classList.add('no-raw');">
+        <div class="lb-noraw">Raw frame not available
+          <small>(captured before the worker started saving raw snapshots)</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="lb-params" id="lb-params">
+      <div class="muted">No parameters captured.</div>
+    </div>
+  </div>
 </div>
 
 <script src="{{ url_for('static', filename='history.js') }}"></script>

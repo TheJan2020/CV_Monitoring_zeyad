@@ -198,32 +198,85 @@ function renderTotals(totals) {
   }).join("");
 }
 
+let _currentSnaps = [];
+
 function renderSnapshots(snaps) {
+  _currentSnaps = snaps;
   snapCount.textContent = snaps.length ? `· ${snaps.length}` : "";
   if (snaps.length === 0) {
     snapGrid.innerHTML = '<p class="muted">No snapshots saved for this day yet.</p>';
     return;
   }
-  snapGrid.innerHTML = snaps.map((s) => {
+  snapGrid.innerHTML = snaps.map((s, idx) => {
     const url = `/api/snapshots/${s.file_rel}`;
     return `
-      <div class="snap-cell" data-url="${url}" data-time="${fmtClock(s.captured_at)}">
+      <div class="snap-cell" data-idx="${idx}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         <div class="snap-time">${fmtClock(s.captured_at)}</div>
       </div>`;
   }).join("");
   snapGrid.querySelectorAll(".snap-cell").forEach((el) => {
-    el.addEventListener("click", () => openLightbox(el.dataset.url, el.dataset.time));
+    el.addEventListener("click", () => {
+      const s = _currentSnaps[Number(el.dataset.idx)];
+      if (s) openLightbox(s);
+    });
   });
 }
 
 // ---- lightbox --------------------------------------------------------
 
 const lightbox = document.getElementById("lightbox");
-function openLightbox(url, time) {
-  document.getElementById("lb-image").src = url;
-  document.getElementById("lb-caption").textContent = time;
+
+function openLightbox(snap) {
+  const annotated = `/api/snapshots/${snap.file_rel}`;
+  const raw = annotated.replace(/\.jpg$/, "_raw.jpg");
+  document.getElementById("lb-caption").textContent = fmtClock(snap.captured_at);
+  // Reset raw column visibility (the onerror handler may have hidden it on a
+  // previous snapshot that had no raw counterpart).
+  const rawCol = document.getElementById("lb-img-raw").parentElement;
+  rawCol.classList.remove("no-raw");
+  document.getElementById("lb-img-raw").style.display = "";
+  // Set sources fresh
+  document.getElementById("lb-img-annotated").src = annotated;
+  document.getElementById("lb-img-raw").src = raw;
+  // Parameters
+  document.getElementById("lb-params").innerHTML = renderParams(snap.state);
   lightbox.classList.remove("hidden");
+}
+
+function renderParams(state) {
+  if (!state || typeof state !== "object") {
+    return '<div class="muted">No parameters captured for this snapshot.</div>';
+  }
+  const rows = [];
+  const push = (label, value, badge) => {
+    if (value === null || value === undefined || value === "") return;
+    rows.push(`
+      <div class="param-row">
+        <span class="param-k">${label}</span>
+        <span class="param-v">${badge ? `<span class="badge-pill ${badge}">${escapeHtml(String(value))}</span>` : escapeHtml(String(value))}</span>
+      </div>`);
+  };
+  const activity = state.activity;
+  push("Activity",  activity ? (ACTIVITY_LABEL[activity] || activity) : null, activity ? `pill-act-${activity}` : "");
+  push("Posture",   state.posture ? (POSTURE_LABEL[state.posture] || state.posture) : null);
+  push("Motion",    state.motion ? (MOTION_LABEL[state.motion] || state.motion) : null);
+  push("Persons",   state.person_count);
+  push("Still for", state.still_seconds != null ? fmtDur(state.still_seconds) : null);
+  push("Motion score", state.motion_score != null ? Number(state.motion_score).toFixed(3) : null);
+  push("Body angle", state.posture_angle_deg != null ? Math.round(state.posture_angle_deg) + "°" : null);
+  push("FPS", state.fps != null ? Number(state.fps).toFixed(1) : null);
+  if (state.baby_lock) {
+    push("Lock age", fmtDur(state.baby_lock.age_s));
+    push("Lock confidence", state.baby_lock.confidence != null ? Number(state.baby_lock.confidence).toFixed(2) : null);
+    if (state.baby_lock.box) {
+      const b = state.baby_lock.box;
+      push("Lock bbox", `(${b[0]}, ${b[1]}) → (${b[2]}, ${b[3]})`);
+    }
+  }
+  if (state.camera_type) push("Camera type", state.camera_type);
+  if (rows.length === 0) return '<div class="muted">No parameters captured.</div>';
+  return rows.join("");
 }
 lightbox.querySelectorAll("[data-close]").forEach((el) =>
   el.addEventListener("click", () => lightbox.classList.add("hidden")),
