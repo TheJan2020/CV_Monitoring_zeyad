@@ -185,15 +185,37 @@ class ClipBuffer:
 
 
 class ClipBufferManager:
-    """Tracks per-camera ``ClipBuffer`` instances; reconciled against the
-    current camera list on every change."""
+    """Tracks per-camera ``ClipBuffer`` instances. Reconciled against the
+    current camera list on every config change AND idled-out based on
+    person presence reported by the state recorder.
 
-    def __init__(self, base_dir: Path) -> None:
+    ``update(cameras)`` only creates / drops buffer objects for cameras
+    that should have one. It does not start them — that's driven by
+    ``notice_presence(camera_id, has_person, clip_seconds)``, which the
+    recorder calls on every /state poll:
+
+      * ``has_person=True``  → start (or refresh) the buffer
+      * ``has_person=False`` for > ``idle_pause_seconds``
+        seconds → stop the buffer (free up the RTSP session)
+
+    This keeps each baby camera at one RTSP session most of the day
+    (just the worker), and only spins up a second session when there's
+    actually someone to clip.
+    """
+
+    def __init__(self, base_dir: Path, idle_pause_seconds: float = 60.0) -> None:
         self.base_dir = base_dir
+        self.idle_pause_seconds = idle_pause_seconds
         self._buffers: dict[str, ClipBuffer] = {}
+        self._last_seen_with_person: dict[str, float] = {}
         self._lock = threading.Lock()
 
+    # --- config reconciliation ------------------------------------------
+
     def update(self, cameras: list[dict]) -> None:
+        """Reconcile buffer objects against the desired camera set.
+        Does NOT start buffers — they remain paused until notice_presence
+        is called with has_person=True."""
         with self._lock:
             wanted = {
                 c["id"]: c
@@ -201,28 +223,56 @@ class ClipBufferManager:
                 if c.get("enabled", True) and c.get("save_history")
                 and (c.get("rtsp_url") or "").strip()
             }
-            # Stop and forget removed / disabled
+            # Stop and drop removed / disabled
             for cam_id in list(self._buffers.keys()):
                 if cam_id not in wanted:
                     self._buffers[cam_id].stop()
                     self._buffers.pop(cam_id, None)
-            # Start new
+                    self._last_seen_with_person.pop(cam_id, None)
+            # Ensure objects exist (paused) for kept cameras
             for cam_id, cam in wanted.items():
-                buf = self._buffers.get(cam_id)
-                if buf and buf.alive():
-                    continue
-                clip_s = int(cam.get("clip_seconds", 5) or 5)
-                if buf is None:
-                    buf = ClipBuffer(cam_id, cam["rtsp_url"], self.base_dir)
-                    self._buffers[cam_id] = buf
-                buf.start(total_buffer_s=clip_s * 2 + 4)
+                if cam_id not in self._buffers:
+                    self._buffers[cam_id] = ClipBuffer(
+                        cam_id, cam["rtsp_url"], self.base_dir
+                    )
+
+    # --- presence-driven start / pause -----------------------------------
+
+    def notice_presence(
+        self, camera_id: str, has_person: bool, clip_seconds: int,
+    ) -> None:
+        """Called by the state recorder on every /state poll."""
+        now = _wall_time()
+        with self._lock:
+            buf = self._buffers.get(camera_id)
+            if buf is None:
+                return
+            if has_person:
+                self._last_seen_with_person[camera_id] = now
+                if not buf.alive():
+                    buf.start(total_buffer_s=max(1, clip_seconds) * 2 + 4)
+            else:
+                last = self._last_seen_with_person.get(camera_id, 0.0)
+                if buf.alive() and now - last > self.idle_pause_seconds:
+                    buf.stop()
+
+    # --- access ----------------------------------------------------------
 
     def get(self, camera_id: str) -> ClipBuffer | None:
         with self._lock:
-            return self._buffers.get(camera_id)
+            buf = self._buffers.get(camera_id)
+            # Only return alive buffers — extract_clip on a paused buffer
+            # would produce nothing useful.
+            return buf if (buf is not None and buf.alive()) else None
 
     def stop_all(self) -> None:
         with self._lock:
             for buf in self._buffers.values():
                 buf.stop()
             self._buffers.clear()
+            self._last_seen_with_person.clear()
+
+
+def _wall_time() -> float:
+    import time as _t
+    return _t.time()

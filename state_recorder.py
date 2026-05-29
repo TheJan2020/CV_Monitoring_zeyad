@@ -299,11 +299,16 @@ class StateRecorderThread(threading.Thread):
         get_workers_fn,
         get_camera_fn=None,
         get_clip_buffer_fn=None,
+        on_presence_fn=None,
     ) -> None:
         super().__init__(daemon=True, name="StateRecorder")
         self.get_workers_fn = get_workers_fn
         self.get_camera_fn = get_camera_fn
         self.get_clip_buffer_fn = get_clip_buffer_fn
+        # Called every /state poll with (camera_id, has_person, clip_seconds).
+        # Used by the hub to idle-pause the clip ffmpeg ring buffer when no
+        # person is in frame (saves an RTSP session against the camera).
+        self.on_presence_fn = on_presence_fn
         self._stop = threading.Event()
         self._last_snapshot: dict[str, float] = {}
         # Queued clip extractions: list of (extract_at, cam_id, snap_id,
@@ -373,6 +378,19 @@ class StateRecorderThread(threading.Thread):
                         record_state(cam_id, activity, posture, motion)
                     except Exception:
                         pass
+                    # Tell the hub about person presence so the clip ring
+                    # buffer can be paused while the crib is empty (saves an
+                    # RTSP session against the camera).
+                    persons_now = int(s.get("person_count", 0) or 0)
+                    clip_s_cfg = int(
+                        cam_cfg.get("clip_seconds", DEFAULT_CLIP_SECONDS)
+                        or DEFAULT_CLIP_SECONDS
+                    )
+                    if self.on_presence_fn:
+                        try:
+                            self.on_presence_fn(cam_id, persons_now > 0, clip_s_cfg)
+                        except Exception:
+                            pass
                     interval = float(
                         cam_cfg.get("capture_interval_s", DEFAULT_SNAPSHOT_INTERVAL_S)
                     )
@@ -385,16 +403,26 @@ class StateRecorderThread(threading.Thread):
                     if not snap_id:
                         continue
                     self._last_snapshot[cam_id] = now
-                    # Only schedule clip extraction if a person (after pose
-                    # corroboration / stale-lock filter) was actually in
-                    # frame at capture time. Empty-frame moments still get
-                    # the snapshot for the timeline but skip the costly
-                    # clip extraction + disk write.
-                    persons_now = int(s.get("person_count", 0) or 0)
-                    clip_s = int(cam_cfg.get("clip_seconds", DEFAULT_CLIP_SECONDS) or DEFAULT_CLIP_SECONDS)
-                    if clip_s > 0 and persons_now > 0 and self.get_clip_buffer_fn:
+                    # Only schedule clip extraction if a person was in frame
+                    # at capture time AND the ring buffer is currently
+                    # running (it idles when the crib has been empty for a
+                    # while — first capture after baby returns may not yet
+                    # have a full "before" window).
+                    if (
+                        clip_s_cfg > 0
+                        and persons_now > 0
+                        and self.get_clip_buffer_fn
+                        and self.get_clip_buffer_fn(cam_id) is not None
+                    ):
                         self._pending_clips.append(
-                            (now + clip_s + 1, cam_id, int(snap_id), now, clip_s, clip_s)
+                            (
+                                now + clip_s_cfg + 1,
+                                cam_id,
+                                int(snap_id),
+                                now,
+                                clip_s_cfg,
+                                clip_s_cfg,
+                            )
                         )
             except Exception:
                 pass

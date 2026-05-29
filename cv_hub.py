@@ -294,6 +294,10 @@ def _clip_buffer_for_recorder(cam_id: str):
     return _clip_buffer_mgr.get(cam_id)
 
 
+def _on_presence_for_recorder(cam_id: str, has_person: bool, clip_seconds: int) -> None:
+    _clip_buffer_mgr.notice_presence(cam_id, has_person, clip_seconds)
+
+
 def _start_all_workers() -> None:
     for cam in load_cameras():
         if not cam.get("enabled", True):
@@ -1852,6 +1856,7 @@ def main() -> None:
         get_workers_fn=lambda: dict(_workers),
         get_camera_fn=_camera_for_recorder,
         get_clip_buffer_fn=_clip_buffer_for_recorder,
+        on_presence_fn=_on_presence_for_recorder,
     )
     recorder.start()
     atexit.register(recorder.stop)
