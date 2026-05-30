@@ -229,7 +229,13 @@ class CameraSubprocess:
         if self.config.get("use_frame_pump"):
             env["USE_FRAME_PUMP"] = "1"
             env["CAMERA_ID"] = self.id
-            env["FRAME_PUMP_HLS_DIR"] = str((_REPO / "buffer").resolve())
+            # Path MUST match where the borrowed ClipBufferManager looks
+            # for segments. Manager is constructed with base_dir =
+            # _REPO/config, and ClipBuffer appends "buffer/<cam_id>" to
+            # base_dir. So the pump writes to _REPO/config/buffer/<cam>
+            # too — anything else makes the recorder silently fail to
+            # find segments and clip_rel never lands on snapshots.
+            env["FRAME_PUMP_HLS_DIR"] = str((_REPO / "config" / "buffer").resolve())
             env["FRAME_PUMP_W"] = str(self.config.get("frame_pump_w") or 1280)
             env["FRAME_PUMP_H"] = str(self.config.get("frame_pump_h") or 720)
         else:
@@ -1937,7 +1943,7 @@ def api_audio(cam_id):
     #      session (which was contributing to the Frigate blackouts).
     #   2. Per-camera audio_url override.
     #   3. The camera's main rtsp_url.
-    pump_m3u8 = (_REPO / "buffer" / cam_id / "buf.m3u8").resolve()
+    pump_m3u8 = (_REPO / "config" / "buffer" / cam_id / "buf.m3u8").resolve()
     use_pump_audio = (
         cam.get("use_frame_pump") and pump_m3u8.exists()
     )
