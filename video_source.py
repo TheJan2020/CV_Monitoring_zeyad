@@ -4,6 +4,7 @@ pipe from a co-spawned FramePump for OpenCV-compatible reading."""
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -28,17 +29,21 @@ def _is_pipe(source: str) -> bool:
 class PipeCapture:
     """cv2.VideoCapture-shaped reader over a co-spawned FramePump.
 
-    Worker spawns a :class:`frame_pump.FramePump` (one ffmpeg, fed by the
-    Frigate restream once) and reads raw BGR24 frames from its stdout. This
-    replaces a per-worker cv2.VideoCapture so the camera/Frigate sees ONE
-    RTSP session per camera instead of (worker + clip ffmpeg + audio
-    ffmpeg) = three.
+    A background **drainer thread** continuously reads frames from the
+    FramePump's stdout and keeps only the most recent one in memory.
+    ``read()`` blocks (with timeout) until a NEW frame arrives, then
+    returns it. Older buffered frames are dropped silently.
 
-    Wire format: exactly ``W * H * 3`` bytes per frame, no header. A short
-    read means ffmpeg died (or input EOF'd) — ``read()`` returns
-    ``(False, None)`` and the caller's read_loop trips its failure budget,
-    causing the worker to exit. The hub watchdog then respawns the
-    worker (and via composition, its FramePump).
+    Why this matters: the worker drains slower (YOLO ~6 fps) than ffmpeg
+    produces (10 fps cap). Without the drainer, frames pile up in the OS
+    pipe buffer, ffmpeg blocks on the pipe write, and the HLS output
+    (which shares the same ffmpeg decode loop) stops getting fed. With
+    the drainer, ffmpeg never blocks and the HLS cadence stays smooth.
+
+    A short read on the pipe means ffmpeg died — the drainer exits and
+    subsequent ``read()`` calls return ``(False, None)``. The caller's
+    read_loop trips its failure budget, the worker exits, and the hub
+    watchdog respawns the unit (worker + FramePump together).
     """
 
     def __init__(self, pump: FramePump) -> None:
@@ -50,27 +55,74 @@ class PipeCapture:
         if self._stdout is None:
             raise RuntimeError("FramePump has no stdout — call start() first")
 
-    def isOpened(self) -> bool:  # noqa: N802 (cv2 API parity)
-        return self.pump.alive() and self._stdout is not None
+        # Drainer state: latest decoded frame + monotonic ID so read()
+        # can block-until-fresh. Condition variable lets the drainer
+        # notify a waiting read() without polling.
+        self._latest_frame = None
+        self._frame_id = 0
+        self._last_read_id = 0
+        self._stop = threading.Event()
+        self._cond = threading.Condition()
 
-    def read(self):
-        """Read one full frame. Returns ``(ok, ndarray | None)``."""
-        if self._stdout is None:
-            return False, None
-        # ``read`` on a Popen pipe can return short; loop until we have a
-        # full frame or hit EOF / a closed pipe.
-        buf = bytearray()
-        need = self._frame_bytes
-        while need > 0:
-            chunk = self._stdout.read(need)
-            if not chunk:
-                return False, None
-            buf.extend(chunk)
-            need -= len(chunk)
-        frame = np.frombuffer(buf, dtype=np.uint8).reshape((self._h, self._w, 3))
-        return True, frame
+        self._drainer = threading.Thread(
+            target=self._drain_loop,
+            name=f"pipe-drainer-{pump.camera_id}",
+            daemon=True,
+        )
+        self._drainer.start()
+
+    def _drain_loop(self) -> None:
+        try:
+            while not self._stop.is_set():
+                buf = bytearray()
+                need = self._frame_bytes
+                while need > 0:
+                    chunk = self._stdout.read(need)
+                    if not chunk:
+                        # ffmpeg's stdout closed → end the drainer; read()
+                        # will see pump not alive and return (False, None).
+                        return
+                    buf.extend(chunk)
+                    need -= len(chunk)
+                frame = np.frombuffer(buf, dtype=np.uint8).reshape(
+                    (self._h, self._w, 3),
+                )
+                with self._cond:
+                    self._latest_frame = frame
+                    self._frame_id += 1
+                    self._cond.notify_all()
+        finally:
+            with self._cond:
+                self._cond.notify_all()
+
+    def isOpened(self) -> bool:  # noqa: N802 (cv2 API parity)
+        return self.pump.alive() and self._drainer.is_alive()
+
+    def read(self, timeout: float = 5.0):
+        """Block until a new frame is available (or ``timeout`` elapses /
+        the pump dies). Returns ``(ok, ndarray | None)``."""
+        with self._cond:
+            ok = self._cond.wait_for(
+                lambda: (
+                    self._frame_id > self._last_read_id
+                    or self._stop.is_set()
+                    or not self._drainer.is_alive()
+                ),
+                timeout=timeout,
+            )
+            if (
+                ok
+                and self._frame_id > self._last_read_id
+                and self._latest_frame is not None
+            ):
+                self._last_read_id = self._frame_id
+                return True, self._latest_frame
+        return False, None
 
     def release(self) -> None:
+        self._stop.set()
+        with self._cond:
+            self._cond.notify_all()
         try:
             self.pump.stop()
         except Exception:
