@@ -41,18 +41,42 @@ def _ffmpeg_exe() -> str:
 
 
 class ClipBuffer:
-    """Continuous HLS-style ring buffer for one camera."""
+    """Continuous HLS-style ring buffer for one camera.
 
-    def __init__(self, camera_id: str, rtsp_url: str, base_dir: Path) -> None:
+    Two modes:
+      * ``borrowed=False`` (default): owns an ffmpeg subprocess that
+        pulls RTSP and writes .ts segments. Legacy path.
+      * ``borrowed=True``: the worker's :class:`frame_pump.FramePump`
+        is already writing .ts segments to ``buf_dir`` from its single
+        unified ffmpeg. We don't spawn anything — start/stop are no-ops
+        and ``alive()`` reports True so ``extract_clip()`` is always
+        callable. This is how the single-RTSP-session refactor avoids
+        two ffmpegs writing the same directory.
+    """
+
+    def __init__(
+        self,
+        camera_id: str,
+        rtsp_url: str,
+        base_dir: Path,
+        *,
+        borrowed: bool = False,
+    ) -> None:
         self.camera_id = camera_id
         self.rtsp_url = rtsp_url
         self.buf_dir = (base_dir / "buffer" / camera_id).resolve()
+        self.borrowed = borrowed
         self.proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
 
     # --- lifecycle -------------------------------------------------------
 
     def start(self, total_buffer_s: int = 30) -> None:
+        if self.borrowed:
+            # FramePump owns the ffmpeg; just make sure the directory
+            # exists in case extract_clip races with first-segment write.
+            self.buf_dir.mkdir(parents=True, exist_ok=True)
+            return
         with self._lock:
             if self.proc and self.proc.poll() is None:
                 return
@@ -91,6 +115,12 @@ class ClipBuffer:
                 self.proc = None
 
     def stop(self) -> None:
+        if self.borrowed:
+            # FramePump's lifecycle is owned by the worker; the worker
+            # is responsible for tearing down ffmpeg. We leave the
+            # segments on disk so an in-flight extract_clip can still
+            # complete; the worker will wipe them on its next start().
+            return
         with self._lock:
             if self.proc:
                 try:
@@ -105,6 +135,11 @@ class ClipBuffer:
             shutil.rmtree(self.buf_dir, ignore_errors=True)
 
     def alive(self) -> bool:
+        if self.borrowed:
+            # As far as the recorder is concerned, a borrowed buffer is
+            # always alive — the worker's FramePump runs continuously
+            # whenever the worker process is up, with no presence gating.
+            return True
         return bool(self.proc and self.proc.poll() is None)
 
     # --- extraction ------------------------------------------------------
@@ -229,12 +264,31 @@ class ClipBufferManager:
                     self._buffers[cam_id].stop()
                     self._buffers.pop(cam_id, None)
                     self._last_seen_with_person.pop(cam_id, None)
-            # Ensure objects exist (paused) for kept cameras
+            # Ensure objects exist (paused) for kept cameras. A camera
+            # using the unified FramePump gets a *borrowed* buffer that
+            # just points at the pump's HLS directory — no second ffmpeg.
             for cam_id, cam in wanted.items():
-                if cam_id not in self._buffers:
-                    self._buffers[cam_id] = ClipBuffer(
-                        cam_id, cam["rtsp_url"], self.base_dir
+                borrowed = bool(cam.get("use_frame_pump"))
+                existing = self._buffers.get(cam_id)
+                if existing is None:
+                    new = ClipBuffer(
+                        cam_id, cam["rtsp_url"], self.base_dir,
+                        borrowed=borrowed,
                     )
+                    if borrowed:
+                        new.start()  # idempotent, just creates buf_dir
+                    self._buffers[cam_id] = new
+                elif existing.borrowed != borrowed:
+                    # Mode flipped between borrowed and owned. Tear the
+                    # old one down (no-op if borrowed) and rebuild.
+                    existing.stop()
+                    new = ClipBuffer(
+                        cam_id, cam["rtsp_url"], self.base_dir,
+                        borrowed=borrowed,
+                    )
+                    if borrowed:
+                        new.start()
+                    self._buffers[cam_id] = new
 
     # --- presence-driven start / pause -----------------------------------
 
@@ -246,6 +300,13 @@ class ClipBufferManager:
         with self._lock:
             buf = self._buffers.get(camera_id)
             if buf is None:
+                return
+            # Borrowed buffers don't get presence-gated — the FramePump
+            # runs continuously alongside the worker, so the HLS is
+            # always on. Nothing to start or stop here.
+            if buf.borrowed:
+                if has_person:
+                    self._last_seen_with_person[camera_id] = now
                 return
             if has_person:
                 self._last_seen_with_person[camera_id] = now

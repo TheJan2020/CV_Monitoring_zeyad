@@ -222,6 +222,18 @@ class CameraSubprocess:
         env["USE_FRIGATE_HTTP"] = "0"
         env["PYTHONUNBUFFERED"] = "1"
         env["CAMERA_TYPE"] = (self.config.get("type") or "general").strip().lower()
+        # Single-session FramePump: when use_frame_pump=true the worker
+        # spawns its own ffmpeg that does (raw frames to YOLO) + (HLS
+        # with audio to disk for clips/audio) from ONE RTSP session.
+        # Per-camera flag so we can flip cameras over individually.
+        if self.config.get("use_frame_pump"):
+            env["USE_FRAME_PUMP"] = "1"
+            env["CAMERA_ID"] = self.id
+            env["FRAME_PUMP_HLS_DIR"] = str((_REPO / "buffer").resolve())
+            env["FRAME_PUMP_W"] = str(self.config.get("frame_pump_w") or 1280)
+            env["FRAME_PUMP_H"] = str(self.config.get("frame_pump_h") or 720)
+        else:
+            env.pop("USE_FRAME_PUMP", None)
         # Per-camera detection thresholds override .env defaults
         thresholds = self.config.get("thresholds") or {}
         for key, env_var in THRESHOLD_ENV_MAP.items():
@@ -1911,40 +1923,71 @@ def api_audio(cam_id):
         return Response("camera not found", status=404)
     if not cam.get("audio_enabled", cam.get("type") == "baby"):
         return Response("audio disabled for this camera", status=403)
-    src = (cam.get("audio_url") or "").strip() or (cam.get("rtsp_url") or "").strip()
-    if not src:
-        return Response("no audio source", status=400)
 
-    # Locate ffmpeg — prefer the imageio-ffmpeg bundled binary so we don't
-    # depend on a system install. Falls back to PATH lookup if missing.
+    # Locate ffmpeg — prefer the imageio-ffmpeg bundled binary.
     try:
         from imageio_ffmpeg import get_ffmpeg_exe
         ffmpeg = get_ffmpeg_exe()
     except Exception:
         ffmpeg = "ffmpeg"
 
-    cmd = [
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel", "error",
-        "-rtsp_transport", "tcp",
-        # Reolink RTSP audio timestamps are non-monotonic; without this the
-        # MP3 muxer drops every packet ("invalid, non monotonically
-        # increasing dts") and the output is 0 bytes.
-        "-fflags", "+genpts",
-        "-use_wallclock_as_timestamps", "1",
-        "-i", src,
-        "-vn",
-        "-ac", "1",
-        "-ar", "22050",
-        # async resampling re-aligns audio to a monotonic clock.
-        "-af", "aresample=async=1000",
-        "-acodec", "libmp3lame",
-        "-b:a", "48k",
-        "-flush_packets", "1",
-        "-f", "mp3",
-        "-",
-    ]
+    # Source priority:
+    #   1. The unified FramePump's HLS playlist on disk if this camera
+    #      is in single-session mode — eliminates the per-listener RTSP
+    #      session (which was contributing to the Frigate blackouts).
+    #   2. Per-camera audio_url override.
+    #   3. The camera's main rtsp_url.
+    pump_m3u8 = (_REPO / "buffer" / cam_id / "buf.m3u8").resolve()
+    use_pump_audio = (
+        cam.get("use_frame_pump") and pump_m3u8.exists()
+    )
+
+    if use_pump_audio:
+        # The pump already produces HLS .ts with audio re-encoded to AAC
+        # mono; we just need to transcode that to MP3 for the browser.
+        cmd = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel", "error",
+            "-fflags", "+genpts+nobuffer",
+            # Follow the live playlist as ffmpeg/the pump rewrites it.
+            "-live_start_index", "-1",
+            "-i", str(pump_m3u8),
+            "-vn",
+            "-ac", "1",
+            "-ar", "22050",
+            "-acodec", "libmp3lame",
+            "-b:a", "48k",
+            "-flush_packets", "1",
+            "-f", "mp3",
+            "-",
+        ]
+    else:
+        src = (cam.get("audio_url") or "").strip() or (cam.get("rtsp_url") or "").strip()
+        if not src:
+            return Response("no audio source", status=400)
+        cmd = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel", "error",
+            "-rtsp_transport", "tcp",
+            # Reolink RTSP audio timestamps are non-monotonic; without this
+            # the MP3 muxer drops every packet ("invalid, non monotonically
+            # increasing dts") and the output is 0 bytes.
+            "-fflags", "+genpts",
+            "-use_wallclock_as_timestamps", "1",
+            "-i", src,
+            "-vn",
+            "-ac", "1",
+            "-ar", "22050",
+            # async resampling re-aligns audio to a monotonic clock.
+            "-af", "aresample=async=1000",
+            "-acodec", "libmp3lame",
+            "-b:a", "48k",
+            "-flush_packets", "1",
+            "-f", "mp3",
+            "-",
+        ]
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,

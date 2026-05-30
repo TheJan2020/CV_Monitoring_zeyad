@@ -331,7 +331,32 @@ def main() -> None:
 
     cap = None
     if use_direct:
-        cap = open_capture(source)
+        # Single-session mode: when USE_FRAME_PUMP=1 the worker spawns its
+        # own ffmpeg that fans out raw frames + HLS+audio from one RTSP
+        # session (replacing cv2.VideoCapture + clip_recorder ffmpeg +
+        # /api/audio ffmpeg = 3 sessions). The hub looks at the camera's
+        # ``use_frame_pump`` config flag and sets the env vars below.
+        if os.environ.get("USE_FRAME_PUMP", "0") == "1":
+            from pathlib import Path as _Path
+            from video_source import open_pipe_capture
+            cam_id = os.environ.get("CAMERA_ID", "cam")
+            hls_dir = _Path(os.environ.get(
+                "FRAME_PUMP_HLS_DIR",
+                str(_Path(__file__).parent / "buffer"),
+            ))
+            video_w = int(os.environ.get("FRAME_PUMP_W", "1280"))
+            video_h = int(os.environ.get("FRAME_PUMP_H", "720"))
+            stderr_log = _Path(__file__).parent / f"frame_pump_{cam_id}.log"
+            cap = open_pipe_capture(
+                camera_id=cam_id,
+                rtsp_url=source,
+                hls_dir=hls_dir,
+                video_w=video_w,
+                video_h=video_h,
+                stderr_log_path=stderr_log,
+            )
+        else:
+            cap = open_capture(source)
         if not cap.isOpened():
             raise SystemExit(f"Could not open video source: {source!r}")
         frame_iter = read_loop(cap)
