@@ -62,6 +62,7 @@ class FramePump:
         hls_dir: Path,
         video_w: int = 1280,
         video_h: int = 720,
+        pipe_fps: int = 10,
         total_buffer_s: int = 30,
         stderr_log_path: Path | None = None,
     ) -> None:
@@ -69,6 +70,16 @@ class FramePump:
         self.rtsp_url = rtsp_url
         self.video_w = video_w
         self.video_h = video_h
+        # Caps the raw-frame rate on the pipe to ``pipe_fps``. ffmpeg drops
+        # excess frames at the filter graph rather than blocking on the
+        # pipe — which is critical because the HLS output shares the same
+        # decode loop. Without the cap, the worker (YOLO-bound at 5-7 fps)
+        # can't drain the pipe fast enough, ffmpeg blocks on the pipe
+        # write, and the HLS segment cadence collapses (we observed
+        # segment gaps growing from 4 s to 65 s during burn-in). 10 fps
+        # gives the worker some headroom; the HLS output stays at native
+        # camera rate via -c:v copy.
+        self.pipe_fps = pipe_fps
         self.total_buffer_s = total_buffer_s
         self.buf_dir = (hls_dir / camera_id).resolve()
         self.stderr_log_path = stderr_log_path
@@ -100,10 +111,12 @@ class FramePump:
             "-use_wallclock_as_timestamps", "1",
             "-i", self.rtsp_url,
 
-            # Output 1: raw BGR24 frames at fixed resolution on stdout for
-            # the worker to consume. No audio on this output.
+            # Output 1: raw BGR24 frames at fixed resolution + capped rate
+            # on stdout for the worker. fps= before scale so dropped frames
+            # never get scaled (cheaper). vsync 2 = vfr — drop late frames.
             "-map", "0:v:0",
-            "-vf", f"scale={self.video_w}:{self.video_h}",
+            "-vf", f"fps={self.pipe_fps},scale={self.video_w}:{self.video_h}",
+            "-vsync", "2",
             "-pix_fmt", "bgr24",
             "-f", "rawvideo",
             "pipe:1",
