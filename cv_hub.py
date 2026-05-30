@@ -34,6 +34,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -272,6 +273,157 @@ class CameraSubprocess:
 
 
 _workers: dict[str, CameraSubprocess] = {}
+# Guards against concurrent mutation of _workers between the watchdog
+# thread and Flask handlers (api_reload_camera, api_delete_camera, etc).
+_workers_lock = threading.Lock()
+
+
+class WorkerWatchdog:
+    """Periodically probes each worker and respawns crashed ones.
+
+    Two failure modes are caught:
+      * Process exited (e.g. the worker hit "No frames received after
+        200 attempts" and bailed out) — detected via ``proc.poll()``.
+      * Process running but the HTTP server is unreachable for any
+        reason — detected via a short GET to ``/state``.
+
+    A worker is restarted after ``fail_threshold`` consecutive failed
+    checks, at most once per ``min_restart_gap_s`` seconds (cool-off
+    keeps a permanently-broken camera from getting stuck in a respawn
+    loop). A ``warmup_s`` window after each spawn skips failed checks
+    so model loading and the Flask startup don't read as a failure.
+    """
+
+    def __init__(
+        self,
+        workers_ref: dict[str, "CameraSubprocess"],
+        workers_lock: threading.Lock,
+        interval_s: float = 30.0,
+        fail_threshold: int = 3,
+        http_timeout_s: float = 4.0,
+        min_restart_gap_s: float = 120.0,
+        warmup_s: float = 25.0,
+    ):
+        self.workers = workers_ref
+        self.workers_lock = workers_lock
+        self.interval_s = interval_s
+        self.fail_threshold = fail_threshold
+        self.http_timeout_s = http_timeout_s
+        self.min_restart_gap_s = min_restart_gap_s
+        self.warmup_s = warmup_s
+        self._fail_counts: dict[str, int] = {}
+        self._last_restart_t: dict[str, float] = {}
+        self._spawn_t: dict[str, float] = {}
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    # --- lifecycle -------------------------------------------------------
+
+    def start(self) -> None:
+        # Treat every existing worker as just-spawned so the first check
+        # falls inside its warmup window.
+        now = time.time()
+        for cam_id in list(self.workers.keys()):
+            self._spawn_t.setdefault(cam_id, now)
+        self._thread = threading.Thread(
+            target=self._run, name="worker-watchdog", daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def note_spawn(self, camera_id: str) -> None:
+        """Called by reload_camera_worker after a fresh spawn so the
+        warmup window resets and any stale fail counter is cleared."""
+        self._spawn_t[camera_id] = time.time()
+        self._fail_counts[camera_id] = 0
+
+    # --- probing ---------------------------------------------------------
+
+    def _probe(self, w: "CameraSubprocess") -> tuple[bool, str]:
+        if not w.alive():
+            return False, "process exited"
+        try:
+            req = urllib.request.Request(w.url + "/state")
+            with urllib.request.urlopen(req, timeout=self.http_timeout_s) as resp:
+                if resp.status == 200:
+                    return True, "ok"
+                return False, f"http {resp.status}"
+        except Exception as e:
+            return False, f"http error: {e.__class__.__name__}"
+
+    def _restart(self, cam_id: str, reason: str) -> bool:
+        now = time.time()
+        last = self._last_restart_t.get(cam_id, 0.0)
+        if now - last < self.min_restart_gap_s:
+            return False  # cool-off in effect
+        with self.workers_lock:
+            old = self.workers.get(cam_id)
+            if old is None:
+                self._fail_counts.pop(cam_id, None)
+                self._spawn_t.pop(cam_id, None)
+                return False
+            print(
+                f"[watchdog] respawning worker {cam_id}: {reason}",
+                file=sys.stderr,
+            )
+            try:
+                old.stop()
+            except Exception:
+                pass
+            self.workers.pop(cam_id, None)
+            cam = get_camera(cam_id)
+            if not cam or not cam.get("enabled", True):
+                print(
+                    f"[watchdog] not respawning {cam_id}: disabled or removed",
+                    file=sys.stderr,
+                )
+                self._fail_counts.pop(cam_id, None)
+                self._spawn_t.pop(cam_id, None)
+                return True
+            required = ("id", "port", "rtsp_url")
+            if not all(k in cam for k in required):
+                print(
+                    f"[watchdog] not respawning {cam_id}: config missing keys",
+                    file=sys.stderr,
+                )
+                return True
+            new = CameraSubprocess(cam)
+            new.start()
+            self.workers[cam_id] = new
+        self._fail_counts[cam_id] = 0
+        self._spawn_t[cam_id] = now
+        self._last_restart_t[cam_id] = now
+        return True
+
+    # --- main loop -------------------------------------------------------
+
+    def _run(self) -> None:
+        # Wait one full interval before the first sweep so freshly
+        # started workers get past their warmup.
+        while not self._stop_event.wait(self.interval_s):
+            now = time.time()
+            for cam_id in list(self.workers.keys()):
+                w = self.workers.get(cam_id)
+                if w is None:
+                    continue
+                # Skip checks during the warmup window after spawn.
+                if now - self._spawn_t.get(cam_id, 0.0) < self.warmup_s:
+                    continue
+                ok, reason = self._probe(w)
+                if ok:
+                    self._fail_counts[cam_id] = 0
+                    continue
+                self._fail_counts[cam_id] = (
+                    self._fail_counts.get(cam_id, 0) + 1
+                )
+                if self._fail_counts[cam_id] >= self.fail_threshold:
+                    self._restart(cam_id, reason)
+
+
+# Initialised in main() after _start_all_workers().
+_watchdog: WorkerWatchdog | None = None
 
 # Per-camera ffmpeg HLS ring buffers (only created for cameras with
 # save_history=True). Used by state_recorder to extract pre/post clips.
@@ -333,17 +485,22 @@ signal.signal(signal.SIGTERM, _signal_handler)
 
 def reload_camera_worker(camera_id: str) -> None:
     """Stop the worker for a camera and restart it with the latest config."""
-    old = _workers.pop(camera_id, None)
-    if old:
-        old.stop()
-    cam = get_camera(camera_id)
-    if cam and cam.get("enabled", True):
-        required = ("id", "port", "rtsp_url")
-        if all(k in cam for k in required):
-            w = CameraSubprocess(cam)
-            _workers[camera_id] = w
-            w.start()
-            print(f"[hub] reloaded worker {camera_id} -> {w.url}")
+    with _workers_lock:
+        old = _workers.pop(camera_id, None)
+        if old:
+            old.stop()
+        cam = get_camera(camera_id)
+        if cam and cam.get("enabled", True):
+            required = ("id", "port", "rtsp_url")
+            if all(k in cam for k in required):
+                w = CameraSubprocess(cam)
+                _workers[camera_id] = w
+                w.start()
+                # Mark the fresh spawn time for the watchdog's warm-up window
+                # so the first ~20 s of model loading don't count as failures.
+                if _watchdog is not None:
+                    _watchdog.note_spawn(camera_id)
+                print(f"[hub] reloaded worker {camera_id} -> {w.url}")
     # Always reconcile clip buffers — save_history might have toggled.
     _reconcile_clip_buffers()
 
@@ -1611,9 +1768,10 @@ def api_test_camera_rtsp():
 
 @app.route("/api/cameras/<cam_id>", methods=["DELETE"])
 def api_delete_camera(cam_id):
-    w = _workers.pop(cam_id, None)
-    if w:
-        w.stop()
+    with _workers_lock:
+        w = _workers.pop(cam_id, None)
+        if w:
+            w.stop()
     if not remove_camera(cam_id):
         return jsonify({"error": "not found"}), 404
     _reconcile_clip_buffers()
@@ -1834,12 +1992,21 @@ def api_snapshot(cam_id):
 
 @app.route("/healthz")
 def healthz():
-    return jsonify({
+    body = {
         "cameras": [
             {"id": w.id, "alive": w.alive(), "port": w.port, "name": w.config.get("name")}
             for w in _workers.values()
-        ]
-    })
+        ],
+    }
+    if _watchdog is not None:
+        body["watchdog"] = {
+            "running": _watchdog._thread is not None and _watchdog._thread.is_alive(),
+            "interval_s": _watchdog.interval_s,
+            "fail_threshold": _watchdog.fail_threshold,
+            "fail_counts": dict(_watchdog._fail_counts),
+            "last_restart_t": dict(_watchdog._last_restart_t),
+        }
+    return jsonify(body)
 
 
 def main() -> None:
@@ -1852,6 +2019,18 @@ def main() -> None:
     _start_all_workers()
     _reconcile_clip_buffers()
     atexit.register(_clip_buffer_mgr.stop_all)
+    # Worker watchdog: respawns dead workers (e.g. when the RTSP feed
+    # stalls and the worker bails out with "No frames received").
+    # Disable with HUB_WATCHDOG=0 if you want to debug a hang.
+    if os.environ.get("HUB_WATCHDOG", "1") != "0":
+        global _watchdog
+        _watchdog = WorkerWatchdog(_workers, _workers_lock)
+        _watchdog.start()
+        atexit.register(_watchdog.stop)
+        print(
+            f"[hub] watchdog: probing every {_watchdog.interval_s:.0f}s, "
+            f"respawn after {_watchdog.fail_threshold} fails",
+        )
     recorder = state_recorder.StateRecorderThread(
         get_workers_fn=lambda: dict(_workers),
         get_camera_fn=_camera_for_recorder,
