@@ -21,6 +21,11 @@ const elTotalIn = document.getElementById("sum-total-in");
 const elTotalOut = document.getElementById("sum-total-out");
 const elOutCount = document.getElementById("sum-out-count");
 const elLongestIn = document.getElementById("sum-longest-in");
+const elTotalSnaps = document.getElementById("sum-total-snaps");
+const elTotalScored = document.getElementById("sum-total-scored");
+const elScoredPct = document.getElementById("sum-scored-pct");
+const elAccuracy = document.getElementById("sum-accuracy");
+const elAccuracyDetail = document.getElementById("sum-accuracy-detail");
 
 const periodsDiv = document.getElementById("sum-periods");
 const periodsCount = document.getElementById("sum-periods-count");
@@ -127,14 +132,16 @@ function render(data) {
   const bedSegments = segmentsFromSnapshots(_snapshots);
 
   // Counters: how many snapshots were operator-touched and how many of
-  // those flipped the system's decision.
-  let labeledTotal = 0, flippedCount = 0;
+  // those flipped the system's decision. "correct" labels confirm the
+  // system was right on that frame; "incorrect" labels flip the
+  // outcome and count as a system mistake for accuracy purposes.
+  let labeledTotal = 0, correctCount = 0, incorrectCount = 0;
   for (const s of _snapshots) {
-    if (s.label) {
-      labeledTotal += 1;
-      if (s.label === "incorrect") flippedCount += 1;
-    }
+    if (s.label === "correct") { labeledTotal += 1; correctCount += 1; }
+    else if (s.label === "incorrect") { labeledTotal += 1; incorrectCount += 1; }
   }
+  const totalSnaps = _snapshots.length;
+  const accuracy = labeledTotal > 0 ? correctCount / labeledTotal : null;
 
   // Day bounds — use the data's date as midnight-to-midnight.
   let dayStart, dayEnd;
@@ -162,7 +169,7 @@ function render(data) {
   }
 
   const labelHint = labeledTotal > 0
-    ? ` · ${labeledTotal} snapshot${labeledTotal === 1 ? "" : "s"} labeled (${flippedCount} flipped)`
+    ? ` · ${labeledTotal} snapshot${labeledTotal === 1 ? "" : "s"} labeled (${incorrectCount} flipped)`
     : "";
   summary.textContent =
     `${bedSegments.length} segment${bedSegments.length === 1 ? "" : "s"} for ${data.date || currentDate}${labelHint}`;
@@ -170,6 +177,32 @@ function render(data) {
   elTotalOut.textContent = fmtDur(totalOut);
   elOutCount.textContent = outCount;
   elLongestIn.textContent = longestIn > 0 ? fmtDur(longestIn) : "—";
+
+  // Scoring stats
+  elTotalSnaps.textContent = totalSnaps;
+  elTotalScored.textContent = labeledTotal;
+  if (totalSnaps > 0) {
+    const pct = Math.round((labeledTotal / totalSnaps) * 100);
+    elScoredPct.textContent = `${pct}% of snapshots`;
+  } else {
+    elScoredPct.textContent = "—";
+  }
+  if (accuracy != null) {
+    const pct = Math.round(accuracy * 1000) / 10;  // one decimal
+    elAccuracy.textContent = `${pct}%`;
+    elAccuracyDetail.textContent =
+      `${correctCount} correct · ${incorrectCount} incorrect`;
+    // Colour the value by score so the operator can read it at a glance.
+    elAccuracy.className = "sum-stat-value " + (
+      pct >= 95 ? "acc-excellent" :
+      pct >= 80 ? "acc-good" :
+      pct >= 60 ? "acc-fair" : "acc-poor"
+    );
+  } else {
+    elAccuracy.textContent = "—";
+    elAccuracyDetail.textContent = "Score snapshots in History to compute";
+    elAccuracy.className = "sum-stat-value";
+  }
 
   renderBar(bedSegments, dayStart, dayEnd);
   renderHourTicks(dayStart, dayEnd);
