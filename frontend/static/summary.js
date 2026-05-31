@@ -16,16 +16,20 @@ const dateInput = document.getElementById("sum-date-input");
 const summary = document.getElementById("sum-summary");
 const bar = document.querySelector('.sum-bar[data-track="bed"]');
 const hoursDiv = document.getElementById("sum-hours");
-const episodesDiv = document.getElementById("sum-episodes");
-const episodesCount = document.getElementById("sum-episodes-count");
 
 const elTotalIn = document.getElementById("sum-total-in");
 const elTotalOut = document.getElementById("sum-total-out");
 const elOutCount = document.getElementById("sum-out-count");
 const elLongestIn = document.getElementById("sum-longest-in");
 
+const periodsDiv = document.getElementById("sum-periods");
+const periodsCount = document.getElementById("sum-periods-count");
+
 let currentCam = null;
 let currentDate = new Date().toISOString().slice(0, 10);
+// Latest history payload — periods read snapshots from here so we
+// don't re-fetch when a row is expanded.
+let _snapshots = [];
 dateInput.value = currentDate;
 
 // ---- camera select ---------------------------------------------------
@@ -109,6 +113,8 @@ async function reload() {
 
 function render(data) {
   const activity = (data?.tracks?.activity) || [];
+  _snapshots = (data?.snapshots) || [];
+
   // Reduce the multi-state activity timeline to 2-state.
   const bedSegments = compressByValue(
     activity.map((s) => ({
@@ -131,8 +137,7 @@ function render(data) {
   }
 
   // Totals
-  let totalIn = 0, totalOut = 0, longestIn = 0;
-  const outEpisodes = [];
+  let totalIn = 0, totalOut = 0, longestIn = 0, outCount = 0;
   for (const s of bedSegments) {
     const dur = (s.end_ts - s.start_ts);
     if (s.value === SUM_BED_IN) {
@@ -140,7 +145,7 @@ function render(data) {
       if (dur > longestIn) longestIn = dur;
     } else {
       totalOut += dur;
-      outEpisodes.push({ start: s.start_ts, end: s.end_ts, duration: dur });
+      outCount += 1;
     }
   }
 
@@ -148,12 +153,12 @@ function render(data) {
     `${bedSegments.length} segment${bedSegments.length === 1 ? "" : "s"} for ${data.date || currentDate}`;
   elTotalIn.textContent = fmtDur(totalIn);
   elTotalOut.textContent = fmtDur(totalOut);
-  elOutCount.textContent = outEpisodes.length;
+  elOutCount.textContent = outCount;
   elLongestIn.textContent = longestIn > 0 ? fmtDur(longestIn) : "—";
 
   renderBar(bedSegments, dayStart, dayEnd);
   renderHourTicks(dayStart, dayEnd);
-  renderEpisodes(outEpisodes);
+  renderPeriods(bedSegments);
 }
 
 // Collapse adjacent segments that map to the same simplified value, e.g.
@@ -214,20 +219,93 @@ function renderHourTicks(dayStart, dayEnd) {
   }
 }
 
-function renderEpisodes(eps) {
-  episodesCount.textContent = eps.length ? `· ${eps.length}` : "";
-  if (eps.length === 0) {
-    episodesDiv.innerHTML =
-      '<div class="sum-episodes-empty">No out-of-bed episodes recorded for this day.</div>';
+// Build one row per period (in-bed or out-of-bed). Header shows time
+// range + label + duration. Click to expand: a thumbnail strip is
+// rendered lazily from the already-loaded snapshots filtered to the
+// period's time window.
+function renderPeriods(segs) {
+  periodsCount.textContent = segs.length ? `· ${segs.length}` : "";
+  if (segs.length === 0) {
+    periodsDiv.innerHTML =
+      '<div class="sum-empty">No state segments recorded for this day.</div>';
     return;
   }
-  episodesDiv.innerHTML = eps.map((e) => `
-    <div class="sum-episode">
-      <span class="sum-ep-time">${fmtClock(e.start)}</span>
-      <span class="sum-ep-range">→ ${fmtClock(e.end)}</span>
-      <span class="sum-ep-dur">${fmtDur(e.duration)}</span>
-    </div>
-  `).join("");
+  // Newest first — most people scan recent activity.
+  const sorted = [...segs].sort((a, b) => b.start_ts - a.start_ts);
+  periodsDiv.innerHTML = sorted.map((s, idx) => {
+    const label = s.value === SUM_BED_IN ? "In bed" : "Out of bed";
+    const cls = `sum-period sum-period-${s.value}`;
+    return `
+      <div class="${cls}" data-idx="${idx}">
+        <button class="sum-period-header" type="button" aria-expanded="false">
+          <span class="sum-period-chevron">▸</span>
+          <span class="sum-period-dot"></span>
+          <span class="sum-period-label">${label}</span>
+          <span class="sum-period-range">${fmtClock(s.start_ts)} → ${fmtClock(s.end_ts)}</span>
+          <span class="sum-period-dur">${fmtDur(s.end_ts - s.start_ts)}</span>
+        </button>
+        <div class="sum-period-body" hidden></div>
+      </div>
+    `;
+  }).join("");
+
+  // Wire toggle handlers + lazy thumbnail render.
+  periodsDiv.querySelectorAll(".sum-period").forEach((el) => {
+    const seg = sorted[Number(el.dataset.idx)];
+    const header = el.querySelector(".sum-period-header");
+    const body = el.querySelector(".sum-period-body");
+    const chevron = el.querySelector(".sum-period-chevron");
+    header.addEventListener("click", () => {
+      const isOpen = !body.hidden;
+      if (isOpen) {
+        body.hidden = true;
+        header.setAttribute("aria-expanded", "false");
+        chevron.textContent = "▸";
+        return;
+      }
+      // Lazy render thumbnails on first open.
+      if (body.dataset.rendered !== "1") {
+        body.innerHTML = renderPeriodThumbs(seg.start_ts, seg.end_ts);
+        body.dataset.rendered = "1";
+      }
+      body.hidden = false;
+      header.setAttribute("aria-expanded", "true");
+      chevron.textContent = "▾";
+    });
+  });
+}
+
+function renderPeriodThumbs(start, end) {
+  const inWin = _snapshots.filter(
+    (s) => s.captured_at >= start - 0.5 && s.captured_at <= end + 0.5
+  );
+  if (inWin.length === 0) {
+    return '<div class="sum-empty">No snapshots captured during this window.</div>';
+  }
+  // Hard cap so a very long in-bed stretch doesn't render thousands of
+  // <img> tags. Show first + last + evenly-spaced samples up to MAX.
+  const MAX_THUMBS = 60;
+  let picks = inWin;
+  if (inWin.length > MAX_THUMBS) {
+    const step = (inWin.length - 1) / (MAX_THUMBS - 1);
+    picks = [];
+    for (let i = 0; i < MAX_THUMBS; i++) {
+      picks.push(inWin[Math.round(i * step)]);
+    }
+  }
+  const html = picks.map((s) => {
+    const url = `/api/snapshots/${s.file_rel}`;
+    return `
+      <a class="sum-thumb" href="${url}" target="_blank" rel="noopener"
+         title="${fmtClock(s.captured_at)}">
+        <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
+        <span class="sum-thumb-time">${fmtClock(s.captured_at)}</span>
+      </a>`;
+  }).join("");
+  const truncated = inWin.length > MAX_THUMBS
+    ? `<div class="sum-thumbs-note">Showing ${MAX_THUMBS} of ${inWin.length} snapshots (evenly spaced).</div>`
+    : "";
+  return `<div class="sum-thumbs">${html}</div>${truncated}`;
 }
 
 // ---- helpers ---------------------------------------------------------
