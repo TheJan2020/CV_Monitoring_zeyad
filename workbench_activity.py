@@ -582,18 +582,40 @@ def main() -> None:
                 # Real-baby IR detections in this setup observed at 0.22-0.50
                 # — they always have at least head/shoulder keypoints, so
                 # they pass via the corroboration branch, not the floor.
-                KP_CONF_FOR_CORR = 0.15
+                KP_CONF_FOR_CORR = 0.30
                 POSE_OK_CONF_FLOOR = 0.40
-                NO_POSE_CONF_FLOOR = 0.85
+                NO_POSE_CONF_FLOOR = 0.92
 
-                pose_present_anywhere = bool(person_poses)
+                # "pose present" used to mean ``len(person_poses) > 0`` —
+                # but the pose model happily returns sparse low-conf
+                # detections on stuffed toys / bears, which then dragged
+                # the floor down to 0.40 and let a 0.80-conf YOLO box
+                # on a teddy bear lock the system for >1 hour.
+                #
+                # Tighter rule: a "credible pose" needs >= 5 keypoints
+                # at conf >= 0.45 — matches the synthesize_person_from_pose
+                # bar, so the same evidence that would synthesize a
+                # person is the same evidence that relaxes the YOLO
+                # floor. Anything less is pose noise; treat as no-pose
+                # and require very strong YOLO conf (0.92).
+                def _credible_pose(pp) -> bool:
+                    if pp.keypoints_conf is None:
+                        return False
+                    return sum(
+                        1 for c in pp.keypoints_conf if float(c) >= 0.45
+                    ) >= 5
+
+                credible_poses = [pp for pp in person_poses if _credible_pose(pp)]
                 no_pose_floor = (
-                    POSE_OK_CONF_FLOOR if pose_present_anywhere
+                    POSE_OK_CONF_FLOOR if credible_poses
                     else NO_POSE_CONF_FLOOR
                 )
 
+                # Corroboration only counts keypoints from credible poses —
+                # otherwise a single noisy keypoint inside the bear's
+                # bbox could trivially "corroborate" it.
                 def _corroborated_by_pose(det) -> bool:
-                    for pp in person_poses:
+                    for pp in credible_poses:
                         if pp.keypoints_xy is None or pp.keypoints_conf is None:
                             continue
                         n = min(len(pp.keypoints_xy), len(pp.keypoints_conf))
