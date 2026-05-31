@@ -114,6 +114,21 @@
       </div>
     </div>
 
+    <!-- Operator labelling row: scores the system's output on this
+         snapshot. Summary uses these labels to derive its in-bed /
+         not-in-bed grouping (overriding the system's own activity
+         classification when a snapshot is labelled). -->
+    <div class="lb-label-row" id="lb-label-row">
+      <span class="lb-label-prompt">Was the system right?</span>
+      <button type="button" class="lb-label-btn lb-label-correct"
+              data-label="correct">✓ Correct</button>
+      <button type="button" class="lb-label-btn lb-label-incorrect"
+              data-label="incorrect">✗ Incorrect</button>
+      <button type="button" class="lb-label-btn lb-label-clear"
+              data-label="">Clear</button>
+      <span class="lb-label-status" id="lb-label-status"></span>
+    </div>
+
     <div class="lb-params" id="lb-params">
       <div class="muted">No parameters captured.</div>
     </div>

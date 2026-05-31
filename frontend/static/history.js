@@ -474,10 +474,17 @@ function renderSnapshots(snaps) {
     const act = (s.state && s.state.activity) || "";
     const actCls = act ? ` snap-act-${act}` : "";
     const actLabel = act ? (ACTIVITY_LABEL[act] || act) : "";
+    const labelCls = s.label ? ` snap-labeled-${s.label}` : "";
+    const labelDot = s.label === "correct"
+      ? '<span class="snap-label-dot snap-label-correct" title="Marked correct">✓</span>'
+      : s.label === "incorrect"
+        ? '<span class="snap-label-dot snap-label-incorrect" title="Marked incorrect">✗</span>'
+        : "";
     return `
-      <div class="snap-cell${actCls}" data-idx="${idx}" title="${actLabel}">
+      <div class="snap-cell${actCls}${labelCls}" data-idx="${idx}" title="${actLabel}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         ${clipDot}
+        ${labelDot}
         ${actLabel ? `<div class="snap-act-tag">${actLabel}</div>` : ""}
         <div class="snap-time">${fmtClock(s.captured_at)}</div>
       </div>`;
@@ -544,6 +551,10 @@ function openLightbox(snap) {
 
   // Parameters
   document.getElementById("lb-params").innerHTML = renderParams(snap.state);
+  // Label row state — track which snapshot is open so the buttons know
+  // what to PATCH against.
+  _openSnap = snap;
+  syncLabelRow(snap.label || null);
   // Always default to the Images tab when opening — least disruptive.
   setLightboxTab("images");
   lightbox.classList.remove("hidden");
@@ -552,6 +563,95 @@ function openLightbox(snap) {
 // Tab click handlers (set up once).
 document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
   el.addEventListener("click", () => setLightboxTab(el.dataset.tab)),
+);
+
+// ---- snapshot labeling ----------------------------------------------
+
+let _openSnap = null;
+
+function syncLabelRow(label) {
+  document.querySelectorAll("#lb-label-row .lb-label-btn").forEach((b) => {
+    const v = b.dataset.label;
+    const isActive =
+      (label === "correct" && v === "correct") ||
+      (label === "incorrect" && v === "incorrect") ||
+      (!label && v === "");
+    b.classList.toggle("active", isActive);
+  });
+  const status = document.getElementById("lb-label-status");
+  if (label === "correct") {
+    status.textContent = "Marked correct";
+    status.className = "lb-label-status status-correct";
+  } else if (label === "incorrect") {
+    status.textContent = "Marked incorrect";
+    status.className = "lb-label-status status-incorrect";
+  } else {
+    status.textContent = "Unlabeled — Summary uses the system's own classification";
+    status.className = "lb-label-status status-none";
+  }
+}
+
+async function labelSnapshot(value) {
+  if (!_openSnap || _openSnap.id == null) return;
+  const newLabel = value || null;
+  const prev = _openSnap.label || null;
+  if (newLabel === prev) return;
+  // Optimistic local update so the grid + lightbox feel snappy.
+  _openSnap.label = newLabel;
+  syncLabelRow(newLabel);
+  // Persist the in-memory copy in the grid arrays too.
+  for (const arr of [_currentSnaps, _allSnapsForFilter]) {
+    const m = arr.find((s) => s.id === _openSnap.id);
+    if (m) m.label = newLabel;
+  }
+  // Refresh the grid cell so the badge/border updates without a full
+  // re-render of the whole grid.
+  refreshSnapCell(_openSnap);
+  try {
+    const r = await fetch(`/api/snapshots/${_openSnap.id}/label`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: newLabel }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch (e) {
+    // Roll back on failure.
+    _openSnap.label = prev;
+    syncLabelRow(prev);
+    for (const arr of [_currentSnaps, _allSnapsForFilter]) {
+      const m = arr.find((s) => s.id === _openSnap.id);
+      if (m) m.label = prev;
+    }
+    refreshSnapCell(_openSnap);
+    const status = document.getElementById("lb-label-status");
+    status.textContent = "Save failed: " + e.message;
+    status.className = "lb-label-status status-error";
+  }
+}
+
+function refreshSnapCell(snap) {
+  const idx = _currentSnaps.findIndex((s) => s.id === snap.id);
+  if (idx < 0) return;
+  const cell = snapGrid.querySelector(`.snap-cell[data-idx="${idx}"]`);
+  if (!cell) return;
+  cell.classList.remove("snap-labeled-correct", "snap-labeled-incorrect");
+  if (snap.label) cell.classList.add(`snap-labeled-${snap.label}`);
+  let dot = cell.querySelector(".snap-label-dot");
+  if (snap.label) {
+    if (!dot) {
+      dot = document.createElement("span");
+      cell.appendChild(dot);
+    }
+    dot.className = `snap-label-dot snap-label-${snap.label}`;
+    dot.textContent = snap.label === "correct" ? "✓" : "✗";
+    dot.title = snap.label === "correct" ? "Marked correct" : "Marked incorrect";
+  } else if (dot) {
+    dot.remove();
+  }
+}
+
+document.querySelectorAll("#lb-label-row .lb-label-btn").forEach((b) =>
+  b.addEventListener("click", () => labelSnapshot(b.dataset.label)),
 );
 
 function renderParams(state) {

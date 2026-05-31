@@ -433,6 +433,32 @@
   letter-spacing: 0.02em;
 }
 
+/* Operator-label dot on snap thumbnails. Subtle border tint reinforces
+   the activity-color border without competing for attention. */
+.snap-label-dot {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  pointer-events: none;
+}
+.snap-label-dot.snap-label-correct   { background: var(--success, #18a052); }
+.snap-label-dot.snap-label-incorrect { background: var(--error, #e23047); }
+
+/* Faint inner ring on labelled cells so a labelled snapshot is
+   distinguishable at a scroll glance, without losing its activity
+   border colour. */
+.snap-cell.snap-labeled-correct   { box-shadow: inset 0 0 0 2px rgba(24, 160, 82, 0.45); }
+.snap-cell.snap-labeled-incorrect { box-shadow: inset 0 0 0 2px rgba(226, 48, 71, 0.45); }
+
 .snap-cell img {
   width: 100%;
   height: 100%;
@@ -664,6 +690,48 @@
   max-height: 30vh;
   overflow-y: auto;
 }
+
+/* Label row — operator labels the system's output on this snapshot */
+.lb-label-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 22px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12.5px;
+  flex-shrink: 0;
+}
+.lb-label-prompt {
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 4px;
+}
+.lb-label-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.lb-label-btn:hover { background: rgba(255, 255, 255, 0.05); }
+.lb-label-correct.active   { background: var(--success, #18a052); border-color: var(--success, #18a052); color: #fff; }
+.lb-label-incorrect.active { background: var(--error, #e23047); border-color: var(--error, #e23047); color: #fff; }
+.lb-label-clear { color: var(--text-muted); }
+.lb-label-status {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.lb-label-status.status-correct   { color: var(--success, #18a052); font-style: normal; font-weight: 600; }
+.lb-label-status.status-incorrect { color: var(--error, #e23047); font-style: normal; font-weight: 600; }
+.lb-label-status.status-error     { color: var(--error, #e23047); font-style: normal; font-weight: 600; }
 
 .param-row {
   display: flex;

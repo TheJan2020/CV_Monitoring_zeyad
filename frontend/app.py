@@ -147,6 +147,16 @@ def api_history(cam_id):
     return jsonify({"error": (body or {}).get("error") or f"hub status {status}"}), status or 502
 
 
+@app.route("/api/snapshots/<int:snap_id>/label", methods=["PATCH"])
+def api_set_snapshot_label(snap_id):
+    body = request.get_json(silent=True) or {}
+    label = body.get("label")
+    status, resp = hub_client.set_snapshot_label(snap_id, label)
+    if 200 <= status < 300:
+        return jsonify({"ok": True, "id": snap_id, "label": label})
+    return jsonify({"error": (resp or {}).get("error") or f"hub status {status}"}), status or 502
+
+
 @app.route("/api/snapshots/<cam_id>/<path:fname>")
 def api_snapshot_file(cam_id, fname):
     from flask import Response, abort

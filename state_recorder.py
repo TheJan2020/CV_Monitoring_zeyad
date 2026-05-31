@@ -86,6 +86,15 @@ def _open() -> sqlite3.Connection:
             _db.execute("ALTER TABLE snapshots ADD COLUMN state_json TEXT")
         if "clip_rel" not in cols:
             _db.execute("ALTER TABLE snapshots ADD COLUMN clip_rel TEXT")
+        # Operator labelling: each snapshot can be marked "correct"
+        # (system detection matched reality) or "incorrect" (false
+        # positive / false negative). Summary uses these to derive a
+        # corrected in-bed / out-of-bed view; unlabelled snapshots
+        # fall back to the system's own detection.
+        if "label" not in cols:
+            _db.execute("ALTER TABLE snapshots ADD COLUMN label TEXT")
+        if "labeled_at" not in cols:
+            _db.execute("ALTER TABLE snapshots ADD COLUMN labeled_at REAL")
     return _db
 
 
@@ -158,6 +167,31 @@ def update_snapshot_clip(snapshot_id: int, clip_rel: str) -> None:
             "UPDATE snapshots SET clip_rel = ? WHERE id = ?",
             (clip_rel, snapshot_id),
         )
+
+
+def set_snapshot_label(snapshot_id: int, label: str | None) -> bool:
+    """Set or clear the operator label for a snapshot.
+
+    label values:
+      - ``"correct"``   — the system's detection on this frame matched
+                          reality.
+      - ``"incorrect"`` — false positive (system detected baby but
+                          none) or false negative (system missed the
+                          baby). The Summary page flips the bed-state
+                          inferred from system detection for these.
+      - ``None``        — clear the label (back to unlabelled).
+
+    Returns True on success, False if the snapshot ID doesn't exist.
+    """
+    if label is not None and label not in ("correct", "incorrect"):
+        raise ValueError(f"invalid label: {label!r}")
+    with _LOCK:
+        db = _open()
+        cur = db.execute(
+            "UPDATE snapshots SET label = ?, labeled_at = ? WHERE id = ?",
+            (label, time.time() if label is not None else None, snapshot_id),
+        )
+        return cur.rowcount > 0
 
 
 def take_snapshot(camera_id: str, worker_base_url: str) -> int | None:
@@ -249,7 +283,8 @@ def get_snapshots(camera_id: str, day: str) -> list[dict]:
     with _LOCK:
         db = _open()
         rows = db.execute(
-            "SELECT id, captured_at, file_rel, state_json, clip_rel FROM snapshots "
+            "SELECT id, captured_at, file_rel, state_json, clip_rel, label "
+            "FROM snapshots "
             "WHERE camera_id=? AND captured_at >= ? AND captured_at < ? "
             "ORDER BY captured_at",
             (camera_id, start_ts, end_ts_bound),
@@ -262,6 +297,7 @@ def get_snapshots(camera_id: str, day: str) -> list[dict]:
             "file_rel": r[2],
             "state": None,
             "clip_rel": r[4],
+            "label": r[5],
         }
         if r[3]:
             try:

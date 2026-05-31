@@ -1871,6 +1871,31 @@ def api_history(cam_id):
     })
 
 
+@app.route("/api/snapshots/<int:snap_id>/label", methods=["PATCH"])
+def api_set_snapshot_label(snap_id):
+    """Set or clear an operator label on a saved snapshot.
+
+    Body: ``{"label": "correct" | "incorrect" | null}``
+
+    "correct" means the system's detection on this frame matched
+    reality. "incorrect" means it was a false positive or false
+    negative. Summary derives its in-bed/out-of-bed grouping from
+    these — labelled snapshots override the system's own activity
+    classification for that frame.
+    """
+    body = request.get_json(silent=True) or {}
+    label = body.get("label")
+    if label is not None and label not in ("correct", "incorrect"):
+        return jsonify({"error": "label must be 'correct', 'incorrect', or null"}), 400
+    try:
+        ok = state_recorder.set_snapshot_label(snap_id, label)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not ok:
+        return jsonify({"error": "snapshot not found"}), 404
+    return jsonify({"id": snap_id, "label": label})
+
+
 @app.route("/api/snapshots/<cam_id>/<path:fname>")
 def api_serve_snapshot(cam_id, fname):
     """Serve a saved snapshot JPEG (or clip MP4) from disk. ``fname`` is the

@@ -92,6 +92,18 @@ def get_history(cam_id: str, date: str) -> tuple[int, dict]:
     return res["_status"], res["_body"] or {}
 
 
+def set_snapshot_label(snap_id: int, label: str | None) -> tuple[int, dict]:
+    """Set or clear the operator label on a snapshot. label must be
+    "correct", "incorrect", or None to clear."""
+    res = _request(
+        "PATCH",
+        f"/api/snapshots/{int(snap_id)}/label",
+        body={"label": label},
+        timeout=5.0,
+    )
+    return res["_status"], res["_body"] or {}
+
+
 # Helper that returns the raw bytes from the hub's snapshot file endpoint.
 def fetch_snapshot_bytes(path_under_cam: str) -> bytes | None:
     import urllib.request as _ur
