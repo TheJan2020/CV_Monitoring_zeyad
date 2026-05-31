@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Summary — PrimeAnalyze{% endblock %}
+{% block page_title %}Summary{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='history.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='summary.css') }}">
+
+<div class="history-toolbar">
+  <label class="field">
+    <span>Camera</span>
+    <select id="sum-cam-select"><option>Loading…</option></select>
+  </label>
+  <label class="field">
+    <span>Date</span>
+    <input type="date" id="sum-date-input">
+  </label>
+  <button class="btn btn-secondary" id="sum-btn-prev">‹ Previous</button>
+  <button class="btn btn-secondary" id="sum-btn-next">Next ›</button>
+  <button class="btn btn-secondary" id="sum-btn-today">Today</button>
+</div>
+
+<div id="sum-body">
+  <p class="muted" id="sum-summary">Select a baby camera to see the day's in-bed timeline.</p>
+
+  <!-- Headline stats -->
+  <section class="hist-section">
+    <div class="sum-stats">
+      <div class="sum-stat sum-stat-bed">
+        <div class="sum-stat-label">Total time in bed</div>
+        <div class="sum-stat-value" id="sum-total-in">—</div>
+      </div>
+      <div class="sum-stat sum-stat-out">
+        <div class="sum-stat-label">Out of bed</div>
+        <div class="sum-stat-value" id="sum-total-out">—</div>
+      </div>
+      <div class="sum-stat">
+        <div class="sum-stat-label">Out-of-bed episodes</div>
+        <div class="sum-stat-value" id="sum-out-count">—</div>
+      </div>
+      <div class="sum-stat">
+        <div class="sum-stat-label">Longest in-bed stretch</div>
+        <div class="sum-stat-value" id="sum-longest-in">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Single 2-state timeline -->
+  <section class="hist-section">
+    <h3>In bed / Out of bed</h3>
+    <div class="hist-bar sum-bar" data-track="bed"><div class="hist-tooltip"></div></div>
+    <div class="hist-hours" id="sum-hours"></div>
+  </section>
+
+  <!-- Episode list -->
+  <section class="hist-section">
+    <h3>Out-of-bed episodes <span id="sum-episodes-count" class="muted"></span></h3>
+    <div id="sum-episodes" class="sum-episodes"></div>
+  </section>
+</div>
+
+<script src="{{ url_for('static', filename='summary.js') }}"></script>
+{% endblock %}

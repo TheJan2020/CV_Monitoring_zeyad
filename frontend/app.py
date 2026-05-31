@@ -129,6 +129,15 @@ def history_page():
     )
 
 
+@app.route("/summary")
+def summary_page():
+    return render_template(
+        "summary.html",
+        user=session["user"],
+        active="summary",
+    )
+
+
 @app.route("/api/history/<cam_id>")
 def api_history(cam_id):
     date = request.args.get("date") or ""

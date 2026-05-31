@@ -1,0 +1,84 @@
+/* ===== Summary page — additions on top of history.css ===== */
+
+#sum-body {
+  /* No fixed-bottom legend like /history, so reset the padding. */
+  padding-bottom: 24px;
+}
+
+/* Headline stat cards */
+.sum-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.sum-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sum-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.sum-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.sum-stat-bed .sum-stat-value { color: var(--accent); }
+.sum-stat-out .sum-stat-value { color: var(--text-muted); }
+
+/* 2-state timeline. Tall enough to read the colour bands at a glance. */
+.sum-bar { height: 56px; }
+
+/* Bar value colors. The hist-bar uses .v-{track}-{value} classes — we
+   use track="bed" and values "in" / "out". */
+.v-bed-in {
+  background: var(--accent);
+}
+.v-bed-out {
+  background: rgba(154, 154, 166, 0.55);
+}
+
+/* Episode list */
+.sum-episodes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sum-episode {
+  display: grid;
+  grid-template-columns: 110px 1fr 80px;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sum-ep-time { color: var(--text); font-weight: 600; }
+.sum-ep-range { color: var(--text-muted); }
+.sum-ep-dur { color: var(--accent); text-align: right; font-weight: 600; }
+
+.sum-episodes-empty {
+  padding: 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
