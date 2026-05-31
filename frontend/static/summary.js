@@ -5,6 +5,13 @@
 const SUM_BED_IN = "in";    // value used in CSS class .v-bed-in
 const SUM_BED_OUT = "out";  // value used in CSS class .v-bed-out
 
+// Common-sense merge: an out-of-bed gap shorter than this between two
+// in-bed periods is almost certainly a detection blip (baby briefly
+// occluded, light flicker, lock dropped for a few frames). Absorb it
+// into one continuous "in bed" period; snapshots from the original
+// out-window keep a red border so the operator can audit later.
+const SUM_MERGE_MAX_GAP_S = 10 * 60;  // 10 minutes
+
 // Anything that isn't out_of_frame counts as "in bed" — asleep / lying /
 // sitting / moving_a_lot all mean the baby is in the crib.
 function _asBed(activity) {
@@ -116,13 +123,19 @@ function render(data) {
   _snapshots = (data?.snapshots) || [];
 
   // Reduce the multi-state activity timeline to 2-state.
-  const bedSegments = compressByValue(
+  const rawSegments = compressByValue(
     activity.map((s) => ({
       value: _asBed(s.value),
       start_ts: s.start_ts,
       end_ts: s.end_ts,
     })),
   );
+
+  // Common-sense merge: absorb sub-threshold out-of-bed gaps that
+  // sit between two in-bed periods. The absorbed gaps are remembered
+  // on the merged "in" segment as ``mergedOuts`` so we can red-border
+  // their snapshots at render time.
+  const bedSegments = mergeShortOuts(rawSegments, SUM_MERGE_MAX_GAP_S);
 
   // Day bounds — use the data's date as midnight-to-midnight.
   let dayStart, dayEnd;
@@ -136,21 +149,25 @@ function render(data) {
     dayEnd = dayStart + 86400;
   }
 
-  // Totals
-  let totalIn = 0, totalOut = 0, longestIn = 0, outCount = 0;
+  // Totals (use post-merge segments — merged-in time counts as in-bed)
+  let totalIn = 0, totalOut = 0, longestIn = 0, outCount = 0, mergedCount = 0;
   for (const s of bedSegments) {
     const dur = (s.end_ts - s.start_ts);
     if (s.value === SUM_BED_IN) {
       totalIn += dur;
       if (dur > longestIn) longestIn = dur;
+      mergedCount += (s.mergedOuts ? s.mergedOuts.length : 0);
     } else {
       totalOut += dur;
       outCount += 1;
     }
   }
 
+  const mergedHint = mergedCount > 0
+    ? ` · merged ${mergedCount} short blip${mergedCount === 1 ? "" : "s"} (< ${Math.round(SUM_MERGE_MAX_GAP_S/60)} min)`
+    : "";
   summary.textContent =
-    `${bedSegments.length} segment${bedSegments.length === 1 ? "" : "s"} for ${data.date || currentDate}`;
+    `${bedSegments.length} segment${bedSegments.length === 1 ? "" : "s"} for ${data.date || currentDate}${mergedHint}`;
   elTotalIn.textContent = fmtDur(totalIn);
   elTotalOut.textContent = fmtDur(totalOut);
   elOutCount.textContent = outCount;
@@ -159,6 +176,52 @@ function render(data) {
   renderBar(bedSegments, dayStart, dayEnd);
   renderHourTicks(dayStart, dayEnd);
   renderPeriods(bedSegments);
+}
+
+// Absorb sub-threshold ``out`` gaps between two ``in`` periods into a
+// single continuous ``in`` segment. Original out-windows are kept on the
+// merged segment as mergedOuts: [{start, end}, ...] for thumbnail-level
+// visual highlighting.
+function mergeShortOuts(segs, maxOutSec) {
+  if (segs.length === 0) return [];
+  const out = [];
+  let i = 0;
+  while (i < segs.length) {
+    const s = segs[i];
+    if (s.value !== SUM_BED_IN) {
+      out.push({ ...s });
+      i++;
+      continue;
+    }
+    // Extend this in-bed cluster through any short out + in pairs.
+    let startTs = s.start_ts;
+    let endTs = s.end_ts;
+    let mergedOuts = [];
+    let j = i;
+    while (j + 2 < segs.length) {
+      const gap = segs[j + 1];
+      const next = segs[j + 2];
+      if (
+        gap.value === SUM_BED_OUT &&
+        next.value === SUM_BED_IN &&
+        (gap.end_ts - gap.start_ts) < maxOutSec
+      ) {
+        mergedOuts.push({ start: gap.start_ts, end: gap.end_ts });
+        endTs = next.end_ts;
+        j += 2;
+      } else {
+        break;
+      }
+    }
+    out.push({
+      value: SUM_BED_IN,
+      start_ts: startTs,
+      end_ts: endTs,
+      mergedOuts,
+    });
+    i = j + 1;
+  }
+  return out;
 }
 
 // Collapse adjacent segments that map to the same simplified value, e.g.
@@ -234,7 +297,11 @@ function renderPeriods(segs) {
   const sorted = [...segs].sort((a, b) => b.start_ts - a.start_ts);
   periodsDiv.innerHTML = sorted.map((s, idx) => {
     const label = s.value === SUM_BED_IN ? "In bed" : "Out of bed";
-    const cls = `sum-period sum-period-${s.value}`;
+    const mergedN = (s.mergedOuts || []).length;
+    const cls = `sum-period sum-period-${s.value}` + (mergedN ? " has-merged" : "");
+    const mergedBadge = mergedN
+      ? `<span class="sum-period-merged-badge" title="${mergedN} short out-of-bed blip${mergedN === 1 ? "" : "s"} were merged into this period">merged ${mergedN}</span>`
+      : "";
     return `
       <div class="${cls}" data-idx="${idx}">
         <button class="sum-period-header" type="button" aria-expanded="false">
@@ -242,6 +309,7 @@ function renderPeriods(segs) {
           <span class="sum-period-dot"></span>
           <span class="sum-period-label">${label}</span>
           <span class="sum-period-range">${fmtClock(s.start_ts)} → ${fmtClock(s.end_ts)}</span>
+          ${mergedBadge}
           <span class="sum-period-dur">${fmtDur(s.end_ts - s.start_ts)}</span>
         </button>
         <div class="sum-period-body" hidden></div>
@@ -265,7 +333,7 @@ function renderPeriods(segs) {
       }
       // Lazy render thumbnails on first open.
       if (body.dataset.rendered !== "1") {
-        body.innerHTML = renderPeriodThumbs(seg.start_ts, seg.end_ts);
+        body.innerHTML = renderPeriodThumbs(seg);
         body.dataset.rendered = "1";
       }
       body.hidden = false;
@@ -275,7 +343,10 @@ function renderPeriods(segs) {
   });
 }
 
-function renderPeriodThumbs(start, end) {
+function renderPeriodThumbs(period) {
+  const start = period.start_ts;
+  const end = period.end_ts;
+  const mergedOuts = period.mergedOuts || [];
   const inWin = _snapshots.filter(
     (s) => s.captured_at >= start - 0.5 && s.captured_at <= end + 0.5
   );
@@ -283,7 +354,7 @@ function renderPeriodThumbs(start, end) {
     return '<div class="sum-empty">No snapshots captured during this window.</div>';
   }
   // Hard cap so a very long in-bed stretch doesn't render thousands of
-  // <img> tags. Show first + last + evenly-spaced samples up to MAX.
+  // <img> tags. Evenly sample the window when over the cap.
   const MAX_THUMBS = 60;
   let picks = inWin;
   if (inWin.length > MAX_THUMBS) {
@@ -293,19 +364,35 @@ function renderPeriodThumbs(start, end) {
       picks.push(inWin[Math.round(i * step)]);
     }
   }
+  // A snapshot is "merged-out" if its captured_at lies inside any of the
+  // sub-threshold out-windows the merge pass absorbed. We red-border
+  // those so the operator can audit the false-negative frames.
+  const isMergedOut = (t) =>
+    mergedOuts.some((m) => t >= m.start - 0.5 && t <= m.end + 0.5);
+
   const html = picks.map((s) => {
     const url = `/api/snapshots/${s.file_rel}`;
+    const flagged = isMergedOut(s.captured_at);
+    const cls = "sum-thumb" + (flagged ? " sum-thumb-merged" : "");
+    const tip = flagged
+      ? `${fmtClock(s.captured_at)} — flagged as out-of-bed (merged)`
+      : fmtClock(s.captured_at);
     return `
-      <a class="sum-thumb" href="${url}" target="_blank" rel="noopener"
-         title="${fmtClock(s.captured_at)}">
+      <a class="${cls}" href="${url}" target="_blank" rel="noopener"
+         title="${tip}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         <span class="sum-thumb-time">${fmtClock(s.captured_at)}</span>
+        ${flagged ? '<span class="sum-thumb-flag" title="Detected as out-of-bed but merged">⚑</span>' : ""}
       </a>`;
   }).join("");
+  const flaggedCount = picks.filter((s) => isMergedOut(s.captured_at)).length;
   const truncated = inWin.length > MAX_THUMBS
     ? `<div class="sum-thumbs-note">Showing ${MAX_THUMBS} of ${inWin.length} snapshots (evenly spaced).</div>`
     : "";
-  return `<div class="sum-thumbs">${html}</div>${truncated}`;
+  const mergedNote = flaggedCount > 0
+    ? `<div class="sum-thumbs-note sum-thumbs-note-merged">${flaggedCount} thumbnail${flaggedCount === 1 ? "" : "s"} red-bordered: detected as out-of-bed but inside a short blip that was merged into this in-bed period.</div>`
+    : "";
+  return `<div class="sum-thumbs">${html}</div>${mergedNote}${truncated}`;
 }
 
 // ---- helpers ---------------------------------------------------------

@@ -76,7 +76,7 @@
 
 .sum-period-header {
   display: grid;
-  grid-template-columns: 18px 12px 100px 1fr 90px;
+  grid-template-columns: 18px 12px 100px 1fr auto 90px;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -89,6 +89,20 @@
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
+
+/* Small badge on in-bed rows that absorbed false-negative blips */
+.sum-period-merged-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--error, #e23047);
+  background: rgba(226, 48, 71, 0.10);
+  border: 1px solid rgba(226, 48, 71, 0.45);
+  padding: 1px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.sum-period.has-merged { border-color: rgba(226, 48, 71, 0.30); }
 .sum-period-chevron {
   font-size: 11px;
   color: var(--text-muted);
@@ -126,11 +140,33 @@
   position: relative;
   display: block;
   aspect-ratio: 16 / 9;
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
   background: #000;
   text-decoration: none;
+}
+/* Snapshots inside an absorbed out-of-bed blip — red border + flag
+   so the operator can spot the false negatives at a glance. */
+.sum-thumb-merged {
+  border-color: var(--error, #e23047);
+  box-shadow: 0 0 0 1px rgba(226, 48, 71, 0.25);
+}
+.sum-thumb-flag {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  background: var(--error, #e23047);
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.2;
+  pointer-events: none;
+}
+.sum-thumbs-note-merged {
+  color: var(--error, #e23047);
+  font-style: italic;
 }
 .sum-thumb img {
   width: 100%;
