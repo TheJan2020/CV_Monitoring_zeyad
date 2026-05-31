@@ -95,6 +95,21 @@ class BabyTracker:
         # than a real subject.
         stale_lock_seconds: float = 90.0,
         stale_lock_max_conf: float = 0.40,
+        # Position-stability stale-lock release: even babies that are
+        # sound asleep show 8-15+ pixels of bbox-center drift over a
+        # couple of minutes from breathing and small shifts. An
+        # inanimate subject (toy, blanket fold, shadow) drifts 0-4
+        # pixels because there's literally nothing moving — the
+        # smoothing in _smooth_update keeps the box pinned. We
+        # observed exactly this with the 11:07-11:12 false positive:
+        # center moved 2 px in x and 4 px in y across 4.5 minutes.
+        #
+        # After ``stable_lock_grace`` seconds of lock age, if the bbox
+        # center has drifted less than ``stable_lock_max_drift`` pixels
+        # over the trailing ``stable_lock_window`` window, release.
+        stable_lock_grace: float = 60.0,
+        stable_lock_window: float = 120.0,
+        stable_lock_max_drift: float = 8.0,
     ) -> None:
         self.acquire_frames = max(1, int(acquire_frames))
         self.iou_match = iou_match
@@ -104,6 +119,9 @@ class BabyTracker:
         self.moving_a_lot_norm = moving_a_lot_norm
         self.stale_lock_seconds = stale_lock_seconds
         self.stale_lock_max_conf = stale_lock_max_conf
+        self.stable_lock_grace = stable_lock_grace
+        self.stable_lock_window = stable_lock_window
+        self.stable_lock_max_drift = stable_lock_max_drift
 
         self.state: LockState = LockState.NONE
         self.lock: LockedBox | None = None
@@ -112,6 +130,8 @@ class BabyTracker:
         self._acquire_count: int = 0
         self._lock_started_t: float | None = None
         self._max_conf_since_lock: float = 0.0
+        # (t, cx, cy) ring of recent matched centers for drift check.
+        self._center_history: list[tuple[float, float, float]] = []
 
         # Activity state machine (only valid while LOCKED)
         self.activity: str = "out_of_frame"
@@ -138,6 +158,7 @@ class BabyTracker:
         self._acquire_count = 0
         self._lock_started_t = None
         self._max_conf_since_lock = 0.0
+        self._center_history = []
         self._still_since = None
         self._still_seconds = 0.0
         self.activity = "out_of_frame"
@@ -207,6 +228,11 @@ class BabyTracker:
                     )
                     self._lock_started_t = t
                     self._max_conf_since_lock = match_conf
+                    self._center_history = [(
+                        t,
+                        (match[0] + match[2]) / 2.0,
+                        (match[1] + match[3]) / 2.0,
+                    )]
             else:
                 self._acquire_count = max(0, self._acquire_count - 1)
                 if self._acquire_count == 0:
@@ -229,6 +255,33 @@ class BabyTracker:
                 ):
                     self._release()
                     return None
+
+                # Position-stability guard: any real subject (even a sleeping
+                # baby) breathes and shifts; a toy / shadow / blanket fold
+                # doesn't. After the grace window, if the bbox center has
+                # drifted less than ``stable_lock_max_drift`` pixels across
+                # the trailing ``stable_lock_window`` seconds, the lock is
+                # almost certainly on an inanimate subject — release.
+                cx = (match[0] + match[2]) / 2.0
+                cy = (match[1] + match[3]) / 2.0
+                self._center_history.append((t, cx, cy))
+                cutoff = t - self.stable_lock_window
+                self._center_history = [
+                    e for e in self._center_history if e[0] >= cutoff
+                ]
+                if age > self.stable_lock_grace and len(self._center_history) >= 2:
+                    span = t - self._center_history[0][0]
+                    if span >= self.stable_lock_window * 0.5:
+                        xs = [e[1] for e in self._center_history]
+                        ys = [e[2] for e in self._center_history]
+                        drift = max(
+                            max(xs) - min(xs),
+                            max(ys) - min(ys),
+                        )
+                        if drift < self.stable_lock_max_drift:
+                            self._release()
+                            return None
+
                 new = self._smooth_update(self.lock, match)
                 self.lock = LockedBox(
                     x1=new[0], y1=new[1], x2=new[2], y2=new[3],
