@@ -122,11 +122,25 @@ class FramePump:
             "pipe:1",
 
             # Output 2: HLS .ts segments with audio for clips + /api/audio.
+            #
+            # Codec: Reolink main streams are HEVC/H.265 at 4K and Chrome /
+            # Firefox refuse to play HEVC in <video> tags (no native
+            # decoder on Windows without hardware). Re-encode to H.264
+            # baseline+yuv420p so the lightbox can actually show the
+            # clip. Downscale to 1280x720 — the lightbox preview is
+            # nowhere near 4K and the smaller frame keeps re-encode CPU
+            # in check (we share one box with YOLO).
+            #
             # Audio reencoded to AAC because Reolink's RTP timestamps make
-            # the muxer choke otherwise (same fix we needed previously).
+            # the muxer choke otherwise.
             "-map", "0:v:0",
-            "-map", "0:a:0?",  # '?' = optional, some Frigate restreams have no audio
-            "-c:v", "copy",
+            "-map", "0:a:0?",  # optional — some Frigate restreams have no audio
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-vf", "scale=1280:720",
+            "-g", str(SEGMENT_DURATION_S * 30),  # keyframe ~every segment
             "-c:a", "aac", "-b:a", "48k", "-ac", "1", "-ar", "22050",
             "-af", "aresample=async=1000",
             "-f", "hls",
