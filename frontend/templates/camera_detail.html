@@ -18,7 +18,7 @@
 <div class="cd-grid">
   <div class="cd-video-wrap">
     <img id="live-stream" alt="{{ camera.name }} live feed"
-         src="http://{{ host }}:{{ camera.port }}/stream"
+         src="/api/cameras/{{ camera.id }}/snapshot"
          onerror="this.classList.add('stream-error')">
     <div class="stream-overlay" id="stream-overlay">connecting to worker…</div>
   </div>
@@ -43,7 +43,7 @@
     <div class="cd-audio">
       <div class="cd-audio-label">🔊 Live audio</div>
       <audio controls preload="none">
-        <source src="http://{{ host }}:{{ hub_port }}/api/audio/{{ camera.id }}" type="audio/mpeg">
+        <source src="/api/audio/{{ camera.id }}" type="audio/mpeg">
       </audio>
     </div>
     {% endif %}
@@ -107,5 +107,15 @@ async function poll() {
 }
 poll();
 setInterval(poll, 800);
+
+// Refresh the live image every second by reloading the snapshot.
+// We replaced the worker's /stream MJPEG endpoint (which doesn't
+// route through the Cloudflare tunnel) with the snapshot proxy.
+// The cache-buster query param forces the browser to re-fetch.
+const liveImg = document.getElementById("live-stream");
+function refreshLive() {
+  liveImg.src = "/api/cameras/" + camId + "/snapshot?t=" + Date.now();
+}
+setInterval(refreshLive, 1000);
 </script>
 {% endblock %}

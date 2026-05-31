@@ -144,7 +144,20 @@ def api_snapshot_file(cam_id, fname):
     data = hub_client.fetch_snapshot_bytes(f"{cam_id}/{fname}")
     if data is None:
         abort(404)
-    return Response(data, mimetype="image/jpeg",
+    # Snapshot directory holds both JPEGs and clip MP4s — pick the
+    # mime type from the extension so the lightbox <video> tag knows
+    # the response is video. Browsers refuse to play a Blob whose
+    # content-type is image/jpeg even when the bytes are MP4.
+    ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+    mime = {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "mp4": "video/mp4",
+        "m4v": "video/mp4",
+        "webm": "video/webm",
+    }.get(ext, "application/octet-stream")
+    return Response(data, mimetype=mime,
                     headers={"Cache-Control": "public, max-age=3600"})
 
 
@@ -271,6 +284,42 @@ def api_patch_camera(cam_id):
     if 200 <= status < 300:
         return jsonify({"ok": True, "camera": resp})
     return jsonify({"error": resp.get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/audio/<cam_id>")
+def api_audio_proxy(cam_id):
+    """Stream the hub's /api/audio/<id> through the frontend so the
+    browser can play it via the same Cloudflare tunnel that serves
+    the rest of PrimeAnalyze. Without this, the <audio> tag pointed
+    at port 8000 directly — fine on Tailscale, broken via Cloudflare."""
+    from urllib.request import urlopen, Request
+    from urllib.error import URLError
+    from flask import Response, stream_with_context
+    try:
+        req = Request(f"http://127.0.0.1:8000/api/audio/{cam_id}",
+                      headers={"User-Agent": "primeanalyze"})
+        upstream = urlopen(req, timeout=8)
+    except URLError as e:
+        return jsonify({"error": str(e)}), 503
+
+    def relay():
+        try:
+            while True:
+                chunk = upstream.read(4096)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+
+    return Response(
+        stream_with_context(relay()),
+        mimetype=upstream.headers.get("Content-Type", "audio/mpeg"),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.route("/api/cameras/<cam_id>/snapshot")
