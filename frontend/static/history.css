@@ -441,7 +441,37 @@
   gap: 12px;
   margin-bottom: 10px;
 }
-.snap-section-actions { display: flex; gap: 8px; }
+.snap-section-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Label-status filter chip group */
+.snap-filter-chips {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.snap-filter-chips .chip {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  border-right: 1px solid var(--border);
+}
+.snap-filter-chips .chip:last-child { border-right: 0; }
+.snap-filter-chips .chip:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+.snap-filter-chips .chip.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+.snap-filter-chips .chip-correct.active   { background: var(--success); color: #fff; }
+.snap-filter-chips .chip-incorrect.active { background: var(--error);   color: #fff; }
 
 .btn-sm {
   font-size: 12px;

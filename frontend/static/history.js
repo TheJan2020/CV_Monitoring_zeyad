@@ -436,33 +436,65 @@ if (totalsClearBtn) {
   totalsClearBtn.addEventListener("click", clearSnapshotFilter);
 }
 
+// ---- label-status filter chips --------------------------------------
+
+function setLabelFilter(name) {
+  _labelFilter = name;
+  document.querySelectorAll("[data-label-filter]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.labelFilter === name);
+  });
+  renderSnapshots(_allSnapsForFilter);
+}
+
+document.querySelectorAll("[data-label-filter]").forEach((b) => {
+  b.addEventListener("click", () => setLabelFilter(b.dataset.labelFilter));
+});
+
 let _currentSnaps = [];
 let _allSnapsForFilter = [];
+// Label-status filter — "all" | "unlabeled" | "correct" | "incorrect".
+// Composes with _activeFilter (activity/posture/motion totals filter)
+// so you can stack e.g. "asleep AND unlabeled" to find unreviewed
+// sleep frames in one click.
+let _labelFilter = "all";
 
 function renderSnapshots(snaps) {
-  // `snaps` here is the full set for the day; the filter (if any) is
-  // applied at render time so toggling/clearing reruns without a refetch.
+  // `snaps` here is the full set for the day; filters are applied at
+  // render time so toggling/clearing reruns without a refetch.
   _allSnapsForFilter = snaps;
   let visible = snaps;
   if (_activeFilter) {
-    visible = snaps.filter(
+    visible = visible.filter(
       (s) => s.state && s.state[_activeFilter.track] === _activeFilter.value,
     );
   }
+  if (_labelFilter !== "all") {
+    visible = visible.filter((s) => {
+      if (_labelFilter === "unlabeled") return !s.label;
+      return s.label === _labelFilter;
+    });
+  }
   _currentSnaps = visible;
 
-  // Count badge: "· 50" normally; "· 12 of 50 · activity: asleep" when filtered.
+  // Build a compact summary of what filters are active for the count badge.
+  const filterParts = [];
+  if (_activeFilter) {
+    const lbl = TRACK_LABEL[_activeFilter.track]?.[_activeFilter.value] || _activeFilter.value;
+    filterParts.push(`${_activeFilter.track}: ${lbl}`);
+  }
+  if (_labelFilter !== "all") {
+    filterParts.push(_labelFilter);
+  }
   if (snaps.length === 0) {
     snapCount.textContent = "";
-  } else if (_activeFilter) {
-    const lbl = TRACK_LABEL[_activeFilter.track]?.[_activeFilter.value] || _activeFilter.value;
-    snapCount.textContent = `· ${visible.length} of ${snaps.length} · ${_activeFilter.track}: ${lbl}`;
+  } else if (filterParts.length > 0) {
+    snapCount.textContent = `· ${visible.length} of ${snaps.length} · ${filterParts.join(" · ")}`;
   } else {
     snapCount.textContent = `· ${snaps.length}`;
   }
 
   if (visible.length === 0) {
-    snapGrid.innerHTML = _activeFilter
+    snapGrid.innerHTML = filterParts.length > 0
       ? '<p class="muted">No snapshots match this filter.</p>'
       : '<p class="muted">No snapshots saved for this day yet.</p>';
     return;

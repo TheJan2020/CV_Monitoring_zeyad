@@ -71,6 +71,12 @@
     <div class="snap-section-head">
       <h3>Snapshots <span id="snap-count" class="muted"></span></h3>
       <div class="snap-section-actions">
+        <div class="snap-filter-chips" role="tablist" aria-label="Filter by label status">
+          <button type="button" class="chip active" data-label-filter="all">All</button>
+          <button type="button" class="chip" data-label-filter="unlabeled">Unlabeled</button>
+          <button type="button" class="chip chip-correct" data-label-filter="correct">✓ Correct</button>
+          <button type="button" class="chip chip-incorrect" data-label-filter="incorrect">✗ Incorrect</button>
+        </div>
         <button type="button" class="btn btn-secondary btn-sm" id="snap-select-toggle">
           Select
         </button>
