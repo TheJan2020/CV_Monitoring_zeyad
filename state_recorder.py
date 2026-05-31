@@ -170,7 +170,7 @@ def update_snapshot_clip(snapshot_id: int, clip_rel: str) -> None:
 
 
 def set_snapshot_label(snapshot_id: int, label: str | None) -> bool:
-    """Set or clear the operator label for a snapshot.
+    """Set or clear the operator label for a single snapshot.
 
     label values:
       - ``"correct"``   — the system's detection on this frame matched
@@ -192,6 +192,38 @@ def set_snapshot_label(snapshot_id: int, label: str | None) -> bool:
             (label, time.time() if label is not None else None, snapshot_id),
         )
         return cur.rowcount > 0
+
+
+def set_snapshot_labels(snapshot_ids: list[int], label: str | None) -> int:
+    """Bulk-update labels on many snapshots at once. Same semantics as
+    :func:`set_snapshot_label` but in one transaction so the operator
+    can mark a long stretch of frames with one network round-trip.
+
+    Returns the number of rows actually updated (silently ignores IDs
+    that don't exist).
+    """
+    if label is not None and label not in ("correct", "incorrect"):
+        raise ValueError(f"invalid label: {label!r}")
+    ids = [int(i) for i in snapshot_ids]
+    if not ids:
+        return 0
+    now = time.time() if label is not None else None
+    with _LOCK:
+        db = _open()
+        # Chunk to keep SQLite parameter count under the default 999
+        # limit even for very large selections.
+        CHUNK = 500
+        total = 0
+        for i in range(0, len(ids), CHUNK):
+            chunk = ids[i:i + CHUNK]
+            qmarks = ",".join(["?"] * len(chunk))
+            cur = db.execute(
+                f"UPDATE snapshots SET label = ?, labeled_at = ? "
+                f"WHERE id IN ({qmarks})",
+                (label, now, *chunk),
+            )
+            total += cur.rowcount
+        return total
 
 
 def take_snapshot(camera_id: str, worker_base_url: str) -> int | None:

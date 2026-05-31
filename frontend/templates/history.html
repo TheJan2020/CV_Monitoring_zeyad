@@ -68,7 +68,28 @@
   </section>
 
   <section class="hist-section">
-    <h3>Snapshots <span id="snap-count" class="muted"></span></h3>
+    <div class="snap-section-head">
+      <h3>Snapshots <span id="snap-count" class="muted"></span></h3>
+      <div class="snap-section-actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="snap-select-toggle">
+          Select
+        </button>
+      </div>
+    </div>
+
+    <!-- Bulk action bar — appears only in selection mode -->
+    <div id="snap-bulk-bar" class="snap-bulk-bar" hidden>
+      <span class="snap-bulk-count" id="snap-bulk-count">0 selected</span>
+      <button type="button" class="btn btn-sm" id="snap-bulk-correct">✓ Mark Correct</button>
+      <button type="button" class="btn btn-sm" id="snap-bulk-incorrect">✗ Mark Incorrect</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="snap-bulk-clear">Clear label</button>
+      <span class="snap-bulk-sep"></span>
+      <button type="button" class="btn btn-sm btn-secondary" id="snap-bulk-all">All visible</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="snap-bulk-none">None</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="snap-bulk-cancel">Done</button>
+      <span class="snap-bulk-status" id="snap-bulk-status"></span>
+    </div>
+
     <div id="snap-grid" class="snap-grid"></div>
   </section>
 </div>

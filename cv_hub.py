@@ -1871,6 +1871,27 @@ def api_history(cam_id):
     })
 
 
+@app.route("/api/snapshots/labels", methods=["POST"])
+def api_set_snapshot_labels_bulk():
+    """Bulk-label many snapshots in one request.
+
+    Body: ``{"ids": [1, 2, 3, ...], "label": "correct" | "incorrect" | null}``
+    Response: ``{"updated": N}`` — how many rows actually changed.
+    """
+    body = request.get_json(silent=True) or {}
+    label = body.get("label")
+    ids = body.get("ids")
+    if not isinstance(ids, list) or any(not isinstance(i, int) for i in ids):
+        return jsonify({"error": "'ids' must be a list of integers"}), 400
+    if label is not None and label not in ("correct", "incorrect"):
+        return jsonify({"error": "label must be 'correct', 'incorrect', or null"}), 400
+    try:
+        n = state_recorder.set_snapshot_labels(ids, label)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"updated": n, "label": label})
+
+
 @app.route("/api/snapshots/<int:snap_id>/label", methods=["PATCH"])
 def api_set_snapshot_label(snap_id):
     """Set or clear an operator label on a saved snapshot.

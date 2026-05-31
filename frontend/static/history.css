@@ -433,6 +433,91 @@
   letter-spacing: 0.02em;
 }
 
+/* Snapshots section header — title on the left, Select toggle on the right */
+.snap-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.snap-section-actions { display: flex; gap: 8px; }
+
+.btn-sm {
+  font-size: 12px;
+  padding: 5px 12px;
+}
+#snap-select-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+/* Bulk action bar */
+.snap-bulk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.snap-bulk-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 6px;
+}
+#snap-bulk-correct   { background: var(--success); border-color: var(--success); color: #fff; }
+#snap-bulk-incorrect { background: var(--error);   border-color: var(--error);   color: #fff; }
+.snap-bulk-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.snap-bulk-status {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.snap-bulk-status.status-ok      { color: var(--success); font-style: normal; font-weight: 600; }
+.snap-bulk-status.status-error   { color: var(--error);   font-style: normal; font-weight: 600; }
+.snap-bulk-status.status-pending { color: var(--text-muted); font-style: italic; }
+
+/* Selection mode tweaks on the grid */
+.snap-grid.select-mode .snap-cell { cursor: pointer; }
+.snap-grid.select-mode .snap-cell:hover {
+  outline: 2px solid rgba(11, 176, 186, 0.5);
+  outline-offset: 1px;
+}
+.snap-cell.snap-selected {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+.snap-cell.snap-selected::after {
+  content: "✓";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Hide the activity tag while a cell is selected to avoid overlap with the ✓ */
+.snap-cell.snap-selected .snap-act-tag { display: none; }
+
 /* Operator-label dot on snap thumbnails. Subtle border tint reinforces
    the activity-color border without competing for attention. */
 .snap-label-dot {

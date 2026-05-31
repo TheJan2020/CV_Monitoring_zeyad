@@ -490,11 +490,32 @@ function renderSnapshots(snaps) {
       </div>`;
   }).join("");
   snapGrid.querySelectorAll(".snap-cell").forEach((el) => {
-    el.addEventListener("click", () => {
-      const s = _currentSnaps[Number(el.dataset.idx)];
-      if (s) openLightbox(s);
+    el.addEventListener("click", (ev) => {
+      const idx = Number(el.dataset.idx);
+      const s = _currentSnaps[idx];
+      if (!s) return;
+      if (_selectMode) {
+        // Shift+click selects a range from the last anchor to this idx.
+        if (ev.shiftKey && _lastSelIdx != null) {
+          const [lo, hi] = idx < _lastSelIdx ? [idx, _lastSelIdx] : [_lastSelIdx, idx];
+          for (let i = lo; i <= hi; i++) {
+            const ss = _currentSnaps[i];
+            if (ss) _selectedIds.add(ss.id);
+          }
+        } else {
+          // Toggle this single cell.
+          if (_selectedIds.has(s.id)) _selectedIds.delete(s.id);
+          else _selectedIds.add(s.id);
+          _lastSelIdx = idx;
+        }
+        updateSelectionUI();
+      } else {
+        openLightbox(s);
+      }
     });
   });
+  // Re-apply selected styling after a re-render (e.g. after a filter change).
+  if (_selectMode) updateSelectionUI();
 }
 
 // ---- lightbox --------------------------------------------------------
@@ -653,6 +674,134 @@ function refreshSnapCell(snap) {
 document.querySelectorAll("#lb-label-row .lb-label-btn").forEach((b) =>
   b.addEventListener("click", () => labelSnapshot(b.dataset.label)),
 );
+
+// ---- snapshot multi-select + bulk labeling --------------------------
+
+let _selectMode = false;
+let _selectedIds = new Set();
+let _lastSelIdx = null;
+
+const selectToggleBtn = document.getElementById("snap-select-toggle");
+const bulkBar         = document.getElementById("snap-bulk-bar");
+const bulkCountEl     = document.getElementById("snap-bulk-count");
+const bulkStatusEl    = document.getElementById("snap-bulk-status");
+
+function setSelectMode(on) {
+  _selectMode = on;
+  if (!on) {
+    _selectedIds.clear();
+    _lastSelIdx = null;
+  }
+  selectToggleBtn.textContent = on ? "Selecting…" : "Select";
+  selectToggleBtn.classList.toggle("active", on);
+  snapGrid.classList.toggle("select-mode", on);
+  bulkBar.hidden = !on;
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  bulkCountEl.textContent = `${_selectedIds.size} selected`;
+  snapGrid.querySelectorAll(".snap-cell").forEach((el) => {
+    const idx = Number(el.dataset.idx);
+    const s = _currentSnaps[idx];
+    el.classList.toggle("snap-selected", !!(s && _selectedIds.has(s.id)));
+  });
+}
+
+selectToggleBtn.addEventListener("click", () => setSelectMode(!_selectMode));
+document.getElementById("snap-bulk-cancel").addEventListener("click", () =>
+  setSelectMode(false),
+);
+document.getElementById("snap-bulk-all").addEventListener("click", () => {
+  _currentSnaps.forEach((s) => _selectedIds.add(s.id));
+  updateSelectionUI();
+});
+document.getElementById("snap-bulk-none").addEventListener("click", () => {
+  _selectedIds.clear();
+  updateSelectionUI();
+});
+document.getElementById("snap-bulk-correct").addEventListener("click", () =>
+  bulkLabel("correct"),
+);
+document.getElementById("snap-bulk-incorrect").addEventListener("click", () =>
+  bulkLabel("incorrect"),
+);
+document.getElementById("snap-bulk-clear").addEventListener("click", () =>
+  bulkLabel(null),
+);
+
+async function bulkLabel(label) {
+  if (_selectedIds.size === 0) {
+    bulkStatusEl.textContent = "Nothing selected.";
+    bulkStatusEl.className = "snap-bulk-status status-error";
+    return;
+  }
+  const ids = Array.from(_selectedIds);
+  // Snapshot of previous labels so we can roll back on failure.
+  const prevLabels = new Map();
+  for (const arr of [_currentSnaps, _allSnapsForFilter]) {
+    for (const s of arr) {
+      if (_selectedIds.has(s.id) && !prevLabels.has(s.id)) {
+        prevLabels.set(s.id, s.label || null);
+      }
+    }
+  }
+  // Optimistic UI: apply the new label everywhere it could appear.
+  for (const arr of [_currentSnaps, _allSnapsForFilter]) {
+    for (const s of arr) {
+      if (_selectedIds.has(s.id)) s.label = label;
+    }
+  }
+  _currentSnaps.forEach((s, i) => {
+    if (_selectedIds.has(s.id)) refreshSnapCellByIdx(i, s.label);
+  });
+  bulkStatusEl.textContent = `Saving ${ids.length}…`;
+  bulkStatusEl.className = "snap-bulk-status status-pending";
+  try {
+    const r = await fetch("/api/snapshots/labels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, label }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const body = await r.json();
+    const verb = label === null ? "Cleared" : `Marked ${label} on`;
+    bulkStatusEl.textContent = `${verb} ${body.updated ?? ids.length} snapshot${(body.updated ?? ids.length) === 1 ? "" : "s"}.`;
+    bulkStatusEl.className = "snap-bulk-status status-ok";
+  } catch (e) {
+    // Roll back local state on failure.
+    for (const arr of [_currentSnaps, _allSnapsForFilter]) {
+      for (const s of arr) {
+        if (prevLabels.has(s.id)) s.label = prevLabels.get(s.id);
+      }
+    }
+    _currentSnaps.forEach((s, i) => {
+      if (prevLabels.has(s.id)) refreshSnapCellByIdx(i, s.label);
+    });
+    bulkStatusEl.textContent = "Save failed: " + e.message;
+    bulkStatusEl.className = "snap-bulk-status status-error";
+  }
+}
+
+// Same as refreshSnapCell but skips findIndex when idx is already known.
+function refreshSnapCellByIdx(idx, label) {
+  const cell = snapGrid.querySelector(`.snap-cell[data-idx="${idx}"]`);
+  if (!cell) return;
+  cell.classList.remove("snap-labeled-correct", "snap-labeled-incorrect");
+  if (label) cell.classList.add(`snap-labeled-${label}`);
+  let dot = cell.querySelector(".snap-label-dot");
+  if (label) {
+    if (!dot) {
+      dot = document.createElement("span");
+      cell.appendChild(dot);
+    }
+    dot.className = `snap-label-dot snap-label-${label}`;
+    dot.textContent = label === "correct" ? "✓" : "✗";
+    dot.title = label === "correct" ? "Marked correct" : "Marked incorrect";
+  } else if (dot) {
+    dot.remove();
+  }
+}
 
 function renderParams(state) {
   if (!state || typeof state !== "object") {

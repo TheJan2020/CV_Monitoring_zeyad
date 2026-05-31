@@ -157,6 +157,17 @@ def api_set_snapshot_label(snap_id):
     return jsonify({"error": (resp or {}).get("error") or f"hub status {status}"}), status or 502
 
 
+@app.route("/api/snapshots/labels", methods=["POST"])
+def api_set_snapshot_labels_bulk():
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids") or []
+    label = body.get("label")
+    status, resp = hub_client.set_snapshot_labels(ids, label)
+    if 200 <= status < 300:
+        return jsonify({"ok": True, "updated": (resp or {}).get("updated", 0), "label": label})
+    return jsonify({"error": (resp or {}).get("error") or f"hub status {status}"}), status or 502
+
+
 @app.route("/api/snapshots/<cam_id>/<path:fname>")
 def api_snapshot_file(cam_id, fname):
     from flask import Response, abort
