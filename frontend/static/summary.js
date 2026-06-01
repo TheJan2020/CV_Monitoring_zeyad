@@ -157,6 +157,9 @@ function showOverview() {
   detailSection.hidden = true;
   toolbarOverview.hidden = false;
   toolbarDetail.hidden = true;
+  // Refresh the system-wide stats so labels applied while in detail
+  // mode are reflected in the overview totals.
+  loadOverallStats();
 }
 
 function showDetail(date) {
@@ -190,6 +193,10 @@ async function loadOverview() {
   if (!currentCam) return;
   overviewSummary.textContent = "Loading recent days…";
   dayRowsDiv.innerHTML = "";
+
+  // Kick off the system-wide aggregate fetch in parallel with the
+  // per-day fetches — it doesn't block the day rows.
+  loadOverallStats();
 
   // Build the list of dates: today first, then 3 days back.
   const today = new Date();
@@ -234,6 +241,51 @@ async function loadOverview() {
 
 function hasData(stats) {
   return !!stats && (stats.totalInBed > 0 || stats.totalOutBed > 0);
+}
+
+// System-wide aggregates for the selected camera. Three COUNT(*)
+// queries on the hub — cheap, so we just refetch on every overview
+// load rather than caching.
+const elOverallTotal = document.getElementById("sum-overall-total");
+const elOverallScored = document.getElementById("sum-overall-scored");
+const elOverallUnscored = document.getElementById("sum-overall-unscored");
+const elOverallScoredSub = document.getElementById("sum-overall-scored-sub");
+const elOverallUnscoredSub = document.getElementById("sum-overall-unscored-sub");
+
+async function loadOverallStats() {
+  if (!currentCam) return;
+  elOverallTotal.textContent = "…";
+  elOverallScored.textContent = "…";
+  elOverallUnscored.textContent = "…";
+  elOverallScoredSub.textContent = "";
+  elOverallUnscoredSub.textContent = "";
+  try {
+    const r = await fetch(`/api/snapshots/stats?cam=${encodeURIComponent(currentCam)}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const s = await r.json();
+    const total = s.total || 0;
+    const scored = s.scored || 0;
+    const unscored = s.unscored || 0;
+    elOverallTotal.textContent = total.toLocaleString();
+    elOverallScored.textContent = scored.toLocaleString();
+    elOverallUnscored.textContent = unscored.toLocaleString();
+    if (total > 0) {
+      const scoredPct = Math.round((scored / total) * 100);
+      const unscoredPct = 100 - scoredPct;
+      elOverallScoredSub.textContent =
+        `${scoredPct}% of total · ${s.correct || 0} correct · ${s.incorrect || 0} incorrect`;
+      elOverallUnscoredSub.textContent = `${unscoredPct}% of total — still to label`;
+    } else {
+      elOverallScoredSub.textContent = "—";
+      elOverallUnscoredSub.textContent = "—";
+    }
+  } catch (e) {
+    elOverallTotal.textContent = "—";
+    elOverallScored.textContent = "—";
+    elOverallUnscored.textContent = "—";
+    elOverallScoredSub.textContent = "Failed: " + e.message;
+    elOverallUnscoredSub.textContent = "";
+  }
 }
 
 // Sum up per-track segments into (value → total seconds) maps.

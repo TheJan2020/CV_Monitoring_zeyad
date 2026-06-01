@@ -194,6 +194,39 @@ def set_snapshot_label(snapshot_id: int, label: str | None) -> bool:
         return cur.rowcount > 0
 
 
+def snapshot_stats(camera_id: str | None = None) -> dict:
+    """Lifetime aggregate counts for a camera (or system-wide when
+    ``camera_id`` is None). Cheap — three COUNT(*) queries.
+
+    Returns: ``{"total": int, "scored": int, "unscored": int,
+                "correct": int, "incorrect": int}``
+    """
+    where = "camera_id = ?" if camera_id else "1=1"
+    args: tuple = (camera_id,) if camera_id else ()
+    with _LOCK:
+        db = _open()
+        total = db.execute(
+            f"SELECT COUNT(*) FROM snapshots WHERE {where}",
+            args,
+        ).fetchone()[0]
+        correct = db.execute(
+            f"SELECT COUNT(*) FROM snapshots WHERE {where} AND label = 'correct'",
+            args,
+        ).fetchone()[0]
+        incorrect = db.execute(
+            f"SELECT COUNT(*) FROM snapshots WHERE {where} AND label = 'incorrect'",
+            args,
+        ).fetchone()[0]
+    scored = correct + incorrect
+    return {
+        "total": total,
+        "scored": scored,
+        "unscored": max(0, total - scored),
+        "correct": correct,
+        "incorrect": incorrect,
+    }
+
+
 def set_snapshot_labels(snapshot_ids: list[int], label: str | None) -> int:
     """Bulk-update labels on many snapshots at once. Same semantics as
     :func:`set_snapshot_label` but in one transaction so the operator

@@ -35,6 +35,29 @@
      bed totals + activity-mix and motion-mix bars. Click drills in. -->
 <div id="sum-overview">
   <p class="muted" id="sum-overview-summary">Loading recent days…</p>
+
+  <!-- System-wide scoring snapshot — lifetime aggregates for the
+       selected camera. Cheap COUNT(*) queries on the hub. -->
+  <section class="hist-section">
+    <div class="sum-stats">
+      <div class="sum-stat">
+        <div class="sum-stat-label">Total snapshots</div>
+        <div class="sum-stat-value" id="sum-overall-total">—</div>
+        <div class="sum-stat-sub">across all recorded days</div>
+      </div>
+      <div class="sum-stat sum-stat-bed">
+        <div class="sum-stat-label">Total scored</div>
+        <div class="sum-stat-value" id="sum-overall-scored">—</div>
+        <div class="sum-stat-sub" id="sum-overall-scored-sub">—</div>
+      </div>
+      <div class="sum-stat sum-stat-out">
+        <div class="sum-stat-label">Not scored</div>
+        <div class="sum-stat-value" id="sum-overall-unscored">—</div>
+        <div class="sum-stat-sub" id="sum-overall-unscored-sub">—</div>
+      </div>
+    </div>
+  </section>
+
   <div id="sum-day-rows" class="sum-day-rows"></div>
 </div>
 

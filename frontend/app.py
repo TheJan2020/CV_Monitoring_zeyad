@@ -157,6 +157,15 @@ def api_set_snapshot_label(snap_id):
     return jsonify({"error": (resp or {}).get("error") or f"hub status {status}"}), status or 502
 
 
+@app.route("/api/snapshots/stats")
+def api_snapshot_stats():
+    cam = request.args.get("cam") or None
+    status, resp = hub_client.snapshot_stats(cam)
+    if 200 <= status < 300:
+        return jsonify(resp)
+    return jsonify({"error": (resp or {}).get("error") or f"hub status {status}"}), status or 502
+
+
 @app.route("/api/snapshots/labels", methods=["POST"])
 def api_set_snapshot_labels_bulk():
     body = request.get_json(silent=True) or {}

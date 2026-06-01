@@ -115,6 +115,14 @@ def set_snapshot_labels(ids: list[int], label: str | None) -> tuple[int, dict]:
     return res["_status"], res["_body"] or {}
 
 
+def snapshot_stats(cam_id: str | None = None) -> tuple[int, dict]:
+    """Lifetime aggregate counts (total / scored / unscored / correct
+    / incorrect). Optional camera filter."""
+    path = "/api/snapshots/stats" + (f"?cam={cam_id}" if cam_id else "")
+    res = _request("GET", path, timeout=5.0)
+    return res["_status"], res["_body"] or {}
+
+
 # Helper that returns the raw bytes from the hub's snapshot file endpoint.
 def fetch_snapshot_bytes(path_under_cam: str) -> bytes | None:
     import urllib.request as _ur

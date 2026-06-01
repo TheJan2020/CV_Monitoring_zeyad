@@ -1871,6 +1871,15 @@ def api_history(cam_id):
     })
 
 
+@app.route("/api/snapshots/stats")
+def api_snapshot_stats():
+    """Lifetime aggregate counts (total / scored / unscored / correct /
+    incorrect). Optionally filter by ?cam=<camera_id>. Used by the
+    Summary overview to show a system-wide labelling progress."""
+    cam = request.args.get("cam") or None
+    return jsonify(state_recorder.snapshot_stats(cam))
+
+
 @app.route("/api/snapshots/labels", methods=["POST"])
 def api_set_snapshot_labels_bulk():
     """Bulk-label many snapshots in one request.
