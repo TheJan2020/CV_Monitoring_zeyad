@@ -222,6 +222,31 @@ class CameraSubprocess:
         env["USE_FRIGATE_HTTP"] = "0"
         env["PYTHONUNBUFFERED"] = "1"
         env["CAMERA_TYPE"] = (self.config.get("type") or "general").strip().lower()
+        # Per-camera YOLO person model override. If set, the worker uses
+        # this .pt file instead of the global yolo11s.pt — typically a
+        # fine-tuned model trained on this specific camera's labels via
+        # tools/train_finetune.py. Relative paths are resolved against
+        # the repo root by the worker.
+        person_model = (self.config.get("person_model") or "").strip()
+        if person_model:
+            # Allow either an absolute path or one relative to _REPO.
+            from pathlib import Path as _Path
+            p = _Path(person_model)
+            if not p.is_absolute():
+                p = (_REPO / p).resolve()
+            if p.exists():
+                env["YOLO_MODEL"] = str(p)
+            else:
+                # Fall back to global model and log; don't fail the
+                # worker just because the file is missing yet.
+                env.pop("YOLO_MODEL", None)
+                print(
+                    f"[hub] {self.id}: person_model {person_model!r} "
+                    f"not found at {p} — using global YOLO_MODEL",
+                    file=sys.stderr,
+                )
+        else:
+            env.pop("YOLO_MODEL", None)
         # Single-session FramePump: when use_frame_pump=true the worker
         # spawns its own ffmpeg that does (raw frames to YOLO) + (HLS
         # with audio to disk for clips/audio) from ONE RTSP session.
