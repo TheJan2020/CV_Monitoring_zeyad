@@ -6,10 +6,20 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='history.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='summary.css') }}">
 
-<div class="history-toolbar">
+<!-- Overview-mode toolbar: just the camera selector. -->
+<div class="history-toolbar" id="sum-toolbar-overview">
   <label class="field">
     <span>Camera</span>
     <select id="sum-cam-select"><option>Loading…</option></select>
+  </label>
+</div>
+
+<!-- Detail-mode toolbar: back button + full date controls. -->
+<div class="history-toolbar" id="sum-toolbar-detail" hidden>
+  <button class="btn btn-secondary" id="sum-back-to-overview">‹ All days</button>
+  <label class="field">
+    <span>Camera</span>
+    <select id="sum-cam-select-2"><option>Loading…</option></select>
   </label>
   <label class="field">
     <span>Date</span>
@@ -20,7 +30,18 @@
   <button class="btn btn-secondary" id="sum-btn-today">Today</button>
 </div>
 
-<div id="sum-body">
+<!-- OVERVIEW: list of recent days. Today is always shown; previous 3
+     days appear only if they have any recorded data. Each row shows
+     bed totals + activity-mix and motion-mix bars. Click drills in. -->
+<div id="sum-overview">
+  <p class="muted" id="sum-overview-summary">Loading recent days…</p>
+  <div id="sum-day-rows" class="sum-day-rows"></div>
+</div>
+
+<!-- DETAIL: the existing per-day timeline + stats + periods view.
+     Hidden until a day row is clicked or the user navigates dates
+     from inside it. -->
+<div id="sum-detail" hidden>
   <p class="muted" id="sum-summary">Select a baby camera to see the day's in-bed timeline.</p>
 
   <!-- Headline stats -->

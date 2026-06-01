@@ -11,8 +11,47 @@ function _asBed(activity) {
   return activity === "out_of_frame" ? SUM_BED_OUT : SUM_BED_IN;
 }
 
+// Activity / motion bucketing for the overview rows. The user picked
+// these specific buckets — everything else collapses into "other".
+const ACTIVITY_BUCKETS = ["asleep", "lying", "sitting", "moving_a_lot"];
+const ACTIVITY_LABELS = {
+  asleep: "Asleep",
+  lying: "Lying",
+  sitting: "Sitting",
+  moving_a_lot: "Moving a lot",
+  other: "Other",
+};
+const ACTIVITY_VCLASS = {
+  asleep: "v-activity-asleep",
+  lying: "v-activity-lying",
+  sitting: "v-activity-sitting",
+  moving_a_lot: "v-activity-moving_a_lot",
+  other: "v-activity-uncertain",
+};
+
+const MOTION_BUCKETS = ["still", "moving", "active"];
+const MOTION_LABELS = {
+  still: "Still",
+  moving: "Moving",
+  active: "Active",
+  unknown: "Unknown",
+};
+const MOTION_VCLASS = {
+  still: "v-motion-still",
+  moving: "v-motion-moving",
+  active: "v-motion-active",
+  unknown: "v-motion-unknown",
+};
+
 const camSelect = document.getElementById("sum-cam-select");
+const camSelect2 = document.getElementById("sum-cam-select-2");
 const dateInput = document.getElementById("sum-date-input");
+const overviewSection = document.getElementById("sum-overview");
+const detailSection = document.getElementById("sum-detail");
+const toolbarOverview = document.getElementById("sum-toolbar-overview");
+const toolbarDetail = document.getElementById("sum-toolbar-detail");
+const overviewSummary = document.getElementById("sum-overview-summary");
+const dayRowsDiv = document.getElementById("sum-day-rows");
 const summary = document.getElementById("sum-summary");
 const bar = document.querySelector('.sum-bar[data-track="bed"]');
 const hoursDiv = document.getElementById("sum-hours");
@@ -62,16 +101,31 @@ async function loadCameras() {
     opt.value = c.id;
     opt.textContent = c.name || c.id;
     camSelect.appendChild(opt);
+    // Mirror into the detail-mode camera select so both stay in sync.
+    if (camSelect2) {
+      const opt2 = opt.cloneNode(true);
+      camSelect2.appendChild(opt2);
+    }
   });
   currentCam = cams[0].id;
-  reload();
+  loadOverview();
 }
 loadCameras();
 
 camSelect.addEventListener("change", () => {
   currentCam = camSelect.value;
-  reload();
+  if (camSelect2) camSelect2.value = currentCam;
+  _overviewCache.clear();
+  loadOverview();
 });
+if (camSelect2) {
+  camSelect2.addEventListener("change", () => {
+    currentCam = camSelect2.value;
+    camSelect.value = currentCam;
+    _overviewCache.clear();
+    reload();
+  });
+}
 
 // ---- date controls ---------------------------------------------------
 
@@ -96,7 +150,253 @@ function shiftDate(deltaDays) {
   reload();
 }
 
-// ---- main reload -----------------------------------------------------
+// ---- view mode switching --------------------------------------------
+
+function showOverview() {
+  overviewSection.hidden = false;
+  detailSection.hidden = true;
+  toolbarOverview.hidden = false;
+  toolbarDetail.hidden = true;
+}
+
+function showDetail(date) {
+  currentDate = date;
+  dateInput.value = date;
+  overviewSection.hidden = true;
+  detailSection.hidden = false;
+  toolbarOverview.hidden = true;
+  toolbarDetail.hidden = false;
+  // If we already have this day cached from the overview load, render
+  // straight from the cache. Otherwise fetch.
+  const cached = _overviewCache.get(date);
+  if (cached) {
+    render(cached);
+  } else {
+    reload();
+  }
+}
+
+document.getElementById("sum-back-to-overview").addEventListener("click", () => {
+  showOverview();
+});
+
+// ---- overview: list of recent days ----------------------------------
+
+// Cache by date string so drill-down doesn't refetch.
+const _overviewCache = new Map();
+const OVERVIEW_DAYS = 4;  // today + 3 prior
+
+async function loadOverview() {
+  if (!currentCam) return;
+  overviewSummary.textContent = "Loading recent days…";
+  dayRowsDiv.innerHTML = "";
+
+  // Build the list of dates: today first, then 3 days back.
+  const today = new Date();
+  const dates = [];
+  for (let i = 0; i < OVERVIEW_DAYS; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+
+  // Fetch in parallel; tolerate per-day failures (e.g. older days
+  // that have no data yet).
+  const results = await Promise.all(dates.map(async (d) => {
+    try {
+      const r = await fetch(`/api/history/${currentCam}?date=${d}`, { cache: "no-store" });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) {
+      return null;
+    }
+  }));
+
+  // Cache and convert to per-day stats.
+  const rows = results.map((data, i) => {
+    const date = dates[i];
+    if (data) _overviewCache.set(date, data);
+    return { date, isToday: i === 0, stats: data ? computeDayStats(data) : null };
+  });
+
+  // Today is always shown; earlier days only if they have data.
+  const visible = rows.filter((r, i) => i === 0 || hasData(r.stats));
+
+  if (visible.every((r) => !hasData(r.stats))) {
+    overviewSummary.textContent =
+      "No history recorded yet. The baby camera will start populating once it's been running for a few minutes.";
+  } else {
+    overviewSummary.textContent =
+      `${visible.length} day${visible.length === 1 ? "" : "s"} of history. Click a row for details.`;
+  }
+  renderDayRows(visible);
+}
+
+function hasData(stats) {
+  return !!stats && (stats.totalInBed > 0 || stats.totalOutBed > 0);
+}
+
+// Sum up per-track segments into (value → total seconds) maps.
+function computeDayStats(data) {
+  const tracks = data?.tracks || {};
+  const sumBy = (track) => {
+    const out = {};
+    for (const s of (tracks[track] || [])) {
+      out[s.value] = (out[s.value] || 0) + (s.end_ts - s.start_ts);
+    }
+    return out;
+  };
+  const byActivity = sumBy("activity");
+  const byMotion = sumBy("motion");
+
+  const totalOutBed = byActivity["out_of_frame"] || 0;
+  let totalInBed = 0;
+  for (const [v, sec] of Object.entries(byActivity)) {
+    if (v !== "out_of_frame") totalInBed += sec;
+  }
+
+  // Activity %s computed over IN-BED time only (out_of_frame is
+  // shown separately as "Out of bed"). Bucket non-listed states
+  // into "other" so the bar always sums to 100%.
+  const activityPct = {};
+  if (totalInBed > 0) {
+    let listed = 0;
+    for (const b of ACTIVITY_BUCKETS) {
+      const sec = byActivity[b] || 0;
+      activityPct[b] = (sec / totalInBed) * 100;
+      listed += sec;
+    }
+    const other = totalInBed - listed;
+    if (other > 0.5) activityPct.other = (other / totalInBed) * 100;
+  }
+
+  // Motion %s over the WHOLE day (motion is captured regardless of
+  // whether baby is in frame, and "unknown" rolls into a muted slice).
+  const motionPct = {};
+  let motionTotal = 0;
+  for (const sec of Object.values(byMotion)) motionTotal += sec;
+  if (motionTotal > 0) {
+    for (const b of MOTION_BUCKETS) {
+      const sec = byMotion[b] || 0;
+      motionPct[b] = (sec / motionTotal) * 100;
+    }
+    const known = MOTION_BUCKETS.reduce((acc, b) => acc + (byMotion[b] || 0), 0);
+    const unknown = motionTotal - known;
+    if (unknown > 0.5) motionPct.unknown = (unknown / motionTotal) * 100;
+  }
+
+  return { totalInBed, totalOutBed, activityPct, motionPct, byActivity, byMotion };
+}
+
+function renderDayRows(rows) {
+  if (rows.length === 0) {
+    dayRowsDiv.innerHTML = '<div class="sum-empty">No history.</div>';
+    return;
+  }
+  dayRowsDiv.innerHTML = rows.map((r) => renderOneDayRow(r)).join("");
+  dayRowsDiv.querySelectorAll(".sum-day-row").forEach((el) => {
+    el.addEventListener("click", () => showDetail(el.dataset.date));
+  });
+}
+
+function renderOneDayRow({ date, isToday, stats }) {
+  const dateObj = new Date(date + "T12:00:00");
+  const weekday = dateObj.toLocaleDateString(undefined, { weekday: "short" });
+  const human = dateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  if (!stats || (!hasData(stats) && isToday)) {
+    return `
+      <div class="sum-day-row sum-day-empty" data-date="${date}">
+        <div class="sum-day-label">
+          <span class="sum-day-name">${isToday ? "Today" : weekday}</span>
+          <span class="sum-day-date">${human}</span>
+        </div>
+        <div class="sum-day-empty-msg">No recorded data yet for this day.</div>
+      </div>`;
+  }
+
+  const totalDay = stats.totalInBed + stats.totalOutBed;
+  const inBedPct = totalDay > 0
+    ? Math.round((stats.totalInBed / totalDay) * 100)
+    : 0;
+
+  return `
+    <div class="sum-day-row" data-date="${date}">
+      <div class="sum-day-label">
+        <span class="sum-day-name">${isToday ? "Today" : weekday}</span>
+        <span class="sum-day-date">${human}</span>
+      </div>
+
+      <div class="sum-day-totals">
+        <div class="sum-day-totline">
+          <span class="sum-day-totkey">In bed</span>
+          <span class="sum-day-totval">${fmtDur(stats.totalInBed)}</span>
+        </div>
+        <div class="sum-day-totline">
+          <span class="sum-day-totkey">Out</span>
+          <span class="sum-day-totval">${fmtDur(stats.totalOutBed)}</span>
+        </div>
+        <div class="sum-day-totline">
+          <span class="sum-day-totkey">In-bed %</span>
+          <span class="sum-day-totval">${inBedPct}%</span>
+        </div>
+      </div>
+
+      <div class="sum-day-charts">
+        <div class="sum-chart-block">
+          <div class="sum-chart-label">Activity (of in-bed)</div>
+          ${renderStackedBar(
+            ACTIVITY_BUCKETS.concat(["other"]),
+            stats.activityPct,
+            ACTIVITY_LABELS,
+            ACTIVITY_VCLASS,
+          )}
+        </div>
+        <div class="sum-chart-block">
+          <div class="sum-chart-label">Motion (of day)</div>
+          ${renderStackedBar(
+            MOTION_BUCKETS.concat(["unknown"]),
+            stats.motionPct,
+            MOTION_LABELS,
+            MOTION_VCLASS,
+          )}
+        </div>
+      </div>
+
+      <div class="sum-day-chev" aria-hidden="true">›</div>
+    </div>`;
+}
+
+// Build a horizontal stacked bar from a value→% map. Order is the
+// bucket list passed in; absent / zero buckets render as zero-width.
+function renderStackedBar(buckets, pct, labels, vclassMap) {
+  const segs = buckets.map((b) => {
+    const p = pct[b] || 0;
+    if (p < 0.5) return "";
+    const tip = `${labels[b] || b}: ${p.toFixed(1)}%`;
+    return `<span class="sum-bar-seg ${vclassMap[b] || ""}" style="width:${p}%" title="${tip}"></span>`;
+  }).join("");
+  // Legend underneath with the same colour swatches — so users can read
+  // the bar at a glance without hovering.
+  const legend = buckets.map((b) => {
+    const p = pct[b] || 0;
+    if (p < 0.5) return "";
+    return `
+      <span class="sum-bar-legend-item">
+        <span class="sum-bar-swatch ${vclassMap[b] || ""}"></span>
+        <span class="sum-bar-legend-label">${labels[b] || b}</span>
+        <span class="sum-bar-legend-pct">${Math.round(p)}%</span>
+      </span>`;
+  }).join("");
+  if (!segs) {
+    return '<div class="sum-bar-empty">No data</div>';
+  }
+  return `
+    <div class="sum-bar-stack">${segs}</div>
+    <div class="sum-bar-legend">${legend}</div>`;
+}
+
+// ---- main reload (detail mode) --------------------------------------
 
 async function reload() {
   if (!currentCam) return;
