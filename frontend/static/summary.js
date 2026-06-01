@@ -324,14 +324,20 @@ function computeDayStats(data) {
     const bed = _bedFromSnapshot(s);
     if (bed === SUM_BED_IN) {
       totalInBed += dur;
-      // System's activity classification is only meaningful when it
-      // wasn't "out_of_frame". For frames where bed=IN but raw
-      // activity was "out_of_frame" (i.e. label=incorrect flipped a
-      // missed-baby frame INTO in-bed), the activity is unknown →
-      // bucket as "other" so the activity bar still sums to 100%.
-      const rawActivity = (s.state && s.state.activity) || "out_of_frame";
-      const act = rawActivity !== "out_of_frame" ? rawActivity : "other";
-      byActivity[act] = (byActivity[act] || 0) + dur;
+      // Activity attribution: only trust the system's activity tag
+      // when the system itself agreed there was a baby (persons>0)
+      // AND you didn't say it was wrong. For label=incorrect+persons=0
+      // (false negative — system missed a real baby), bucket time as
+      // "other" since we know the baby was in bed but the system had
+      // no activity classification.
+      const persons = (s.state && s.state.person_count) || 0;
+      if (persons > 0 && s.label !== "incorrect") {
+        const rawActivity = (s.state && s.state.activity) || "other";
+        const act = rawActivity !== "out_of_frame" ? rawActivity : "other";
+        byActivity[act] = (byActivity[act] || 0) + dur;
+      } else {
+        byActivity.other = (byActivity.other || 0) + dur;
+      }
     } else {
       totalOutBed += dur;
     }
@@ -622,34 +628,27 @@ function segmentsFromSnapshots(snaps) {
 
 // Resolve the 2-state ground truth for one snapshot.
 //
-// We key on the snapshot's ACTIVITY classification (not its raw
-// person_count) because that's what every other visual cue in the
-// app uses: the snap-cell border colour, the activity tag in the
-// thumbnail, the period bucketing, the history timeline pills.
-// When the operator clicks "Incorrect" on a red-bordered (=
-// out_of_frame) cell, they intuitively expect the cell to flip into
-// In-bed — they're disagreeing with the activity classification
-// they can see, not with the internal person_count they can't.
+// We key on PERSON_COUNT, not activity. Activity is a downstream tag
+// from BabyTracker which can lag behind raw detection — during the
+// ACQUIRE / cooldown windows you see persons=1 but activity=out_of_
+// frame on the same frame. That contradiction was previously bucketing
+// "system saw a baby + I confirmed it" cells into the Out-of-bed
+// period because activity was leading. person_count is the raw YES/NO
+// of "did YOLO see something in this frame" — which is what you label
+// correct/incorrect against.
 //
 // Logic:
-//   activity != "out_of_frame" → system thinks baby is in bed
+//   persons > 0  → system says baby in frame
 //   label "correct"   → trust system
 //   label "incorrect" → flip
 //   no label          → trust system
 //
-// Edge case: snapshots produced before activity was recorded fall
-// back to person_count (kept here for forward-compat with old DB
-// rows that may exist).
+// Activity is still used elsewhere (border colour, activity tag on
+// the thumbnail, the activity-mix bar on the overview row) — just not
+// for the bed bucket itself.
 function _bedFromSnapshot(s) {
-  const activity = (s.state && s.state.activity) || null;
-  let systemSaysIn;
-  if (activity != null) {
-    systemSaysIn = activity !== "out_of_frame";
-  } else {
-    // Legacy fallback for snapshots without an activity field.
-    const persons = (s.state && s.state.person_count) || 0;
-    systemSaysIn = persons > 0;
-  }
+  const persons = (s.state && s.state.person_count) || 0;
+  let systemSaysIn = persons > 0;
   if (s.label === "incorrect") systemSaysIn = !systemSaysIn;
   return systemSaysIn ? SUM_BED_IN : SUM_BED_OUT;
 }
