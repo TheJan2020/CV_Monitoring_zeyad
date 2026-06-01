@@ -138,6 +138,23 @@ def summary_page():
     )
 
 
+@app.route("/training")
+def training_page():
+    return render_template(
+        "training.html",
+        user=session["user"],
+        active="training",
+    )
+
+
+@app.route("/api/training")
+def api_training_status():
+    status, body = hub_client.training_status()
+    if 200 <= status < 300:
+        return jsonify(body)
+    return jsonify({"error": (body or {}).get("error") or f"hub status {status}"}), status or 502
+
+
 @app.route("/api/history/<cam_id>")
 def api_history(cam_id):
     date = request.args.get("date") or ""

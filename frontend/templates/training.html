@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Training — PrimeAnalyze{% endblock %}
+{% block page_title %}Training{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='training.css') }}">
+
+<div class="trn-toolbar">
+  <span class="trn-status-badge" id="trn-status">…</span>
+  <span class="trn-run-name muted" id="trn-run-name">no run yet</span>
+  <span class="trn-refresh muted" id="trn-refresh">auto-refresh every 5 s</span>
+</div>
+
+<section class="hist-section">
+  <!-- Headline progress -->
+  <div class="trn-progress-block">
+    <div class="trn-progress-head">
+      <span class="trn-progress-label">Epoch</span>
+      <span class="trn-progress-value">
+        <span id="trn-epochs-done">—</span> / <span id="trn-epochs-total">—</span>
+      </span>
+      <span class="trn-eta muted" id="trn-eta-text">—</span>
+    </div>
+    <div class="trn-progress-bar">
+      <div class="trn-progress-fill" id="trn-progress-fill" style="width:0%"></div>
+    </div>
+    <div class="trn-progress-times muted">
+      <span>elapsed: <span id="trn-elapsed">—</span></span>
+      <span>ETA: <span id="trn-eta">—</span></span>
+    </div>
+  </div>
+</section>
+
+<!-- Latest-epoch headline metrics -->
+<section class="hist-section">
+  <h3>Latest epoch <span id="trn-epoch-n" class="muted"></span></h3>
+  <div class="trn-metrics-grid">
+    <div class="trn-metric trn-m-precision">
+      <div class="trn-metric-label">Precision</div>
+      <div class="trn-metric-value" id="trn-precision">—</div>
+    </div>
+    <div class="trn-metric trn-m-recall">
+      <div class="trn-metric-label">Recall</div>
+      <div class="trn-metric-value" id="trn-recall">—</div>
+    </div>
+    <div class="trn-metric trn-m-map50">
+      <div class="trn-metric-label">mAP@50</div>
+      <div class="trn-metric-value" id="trn-map50">—</div>
+    </div>
+    <div class="trn-metric trn-m-map95">
+      <div class="trn-metric-label">mAP@50-95</div>
+      <div class="trn-metric-value" id="trn-map95">—</div>
+    </div>
+    <div class="trn-metric">
+      <div class="trn-metric-label">Box loss</div>
+      <div class="trn-metric-value" id="trn-box-loss">—</div>
+    </div>
+    <div class="trn-metric">
+      <div class="trn-metric-label">Cls loss</div>
+      <div class="trn-metric-value" id="trn-cls-loss">—</div>
+    </div>
+  </div>
+</section>
+
+<!-- Per-epoch history table -->
+<section class="hist-section">
+  <h3>Per-epoch history</h3>
+  <div class="trn-history-wrap">
+    <table class="trn-history" id="trn-history">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Precision</th>
+          <th>Recall</th>
+          <th>mAP@50</th>
+          <th>mAP@50-95</th>
+          <th>Box loss</th>
+          <th>Cls loss</th>
+        </tr>
+      </thead>
+      <tbody id="trn-history-body">
+        <tr><td colspan="7" class="trn-empty">No epochs completed yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Recent log -->
+<section class="hist-section">
+  <h3>Recent log</h3>
+  <pre class="trn-log" id="trn-log">(no log yet)</pre>
+</section>
+
+<script src="{{ url_for('static', filename='training.js') }}"></script>
+{% endblock %}

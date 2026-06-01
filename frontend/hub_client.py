@@ -123,6 +123,12 @@ def snapshot_stats(cam_id: str | None = None) -> tuple[int, dict]:
     return res["_status"], res["_body"] or {}
 
 
+def training_status() -> tuple[int, dict]:
+    """Live training status (active run, epochs, metrics, log tail)."""
+    res = _request("GET", "/api/training", timeout=6.0)
+    return res["_status"], res["_body"] or {}
+
+
 # Helper that returns the raw bytes from the hub's snapshot file endpoint.
 def fetch_snapshot_bytes(path_under_cam: str) -> bytes | None:
     import urllib.request as _ur

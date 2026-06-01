@@ -1,0 +1,167 @@
+/* ===== Training page ===== */
+
+.trn-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.trn-status-badge {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+.trn-status-running { background: rgba(11, 176, 186, 0.15); color: var(--accent); }
+.trn-status-done    { background: rgba(24, 160, 82, 0.16); color: var(--success); }
+.trn-status-paused  { background: rgba(217, 147, 0, 0.16); color: var(--warning); }
+.trn-status-idle    { background: rgba(154, 154, 166, 0.15); color: var(--text-muted); }
+.trn-status-error   { background: rgba(226, 48, 71, 0.16); color: var(--error); }
+
+.trn-run-name {
+  font-family: ui-monospace, monospace;
+  font-size: 12.5px;
+}
+.trn-refresh { margin-left: auto; font-size: 11.5px; }
+
+/* Progress block */
+.trn-progress-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 22px;
+}
+.trn-progress-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.trn-progress-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.trn-progress-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.trn-eta {
+  margin-left: auto;
+  font-size: 12.5px;
+  font-style: italic;
+}
+.trn-progress-bar {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.trn-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #6342dd);
+  transition: width 0.4s ease-out;
+}
+.trn-progress-times {
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Metric cards */
+.trn-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.trn-metric {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+.trn-metric-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.trn-metric-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.trn-m-precision .trn-metric-value { color: var(--success); }
+.trn-m-recall    .trn-metric-value { color: var(--accent); }
+.trn-m-map50     .trn-metric-value { color: #6342dd; }
+.trn-m-map95     .trn-metric-value { color: #6ba9e0; }
+
+/* History table */
+.trn-history-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  overflow-x: auto;
+}
+.trn-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.trn-history th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border);
+}
+.trn-history td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.trn-history tbody tr:last-child td { border-bottom: 0; }
+.trn-empty {
+  text-align: center;
+  padding: 18px !important;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Log */
+.trn-log {
+  background: #0b0c10;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: #c8c8d2;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}

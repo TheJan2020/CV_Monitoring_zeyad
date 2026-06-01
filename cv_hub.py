@@ -1896,6 +1896,173 @@ def api_history(cam_id):
     })
 
 
+@app.route("/api/training")
+def api_training():
+    """Live training status: auto-discovers the most recently modified
+    Ultralytics run under ``runs/`` and returns a structured summary.
+
+    Returns:
+        {
+          "active": bool,                 # is the "cv_train" scheduled task running?
+          "run_name": str,
+          "epochs_total": int|null,
+          "epochs_done": int,
+          "metrics": dict|null,           # latest epoch row from results.csv
+          "history": [dict, ...],         # all epoch rows
+          "eta_seconds": float|null,
+          "elapsed_seconds": float|null,
+          "recent_log": [str, ...],       # de-noised log tail (cleaned of \\r progress bars)
+          "all_runs": [{"name": str, "modified": float}, ...]
+        }
+    """
+    runs_dir = _REPO / "runs"
+    if not runs_dir.exists():
+        return jsonify({
+            "active": _train_task_running(),
+            "run_name": None,
+            "recent_log": _tail_train_log(),
+            "all_runs": [],
+        })
+    runs = sorted(
+        [d for d in runs_dir.iterdir() if d.is_dir()],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not runs:
+        return jsonify({
+            "active": _train_task_running(),
+            "run_name": None,
+            "recent_log": _tail_train_log(),
+            "all_runs": [],
+        })
+    info = _parse_training_run(runs[0])
+    info["recent_log"] = _tail_train_log()
+    info["all_runs"] = [
+        {"name": r.name, "modified": r.stat().st_mtime}
+        for r in runs
+    ]
+    return jsonify(info)
+
+
+def _parse_training_run(run_dir):
+    import csv as _csv
+    info = {
+        "active": _train_task_running(),
+        "run_name": run_dir.name,
+        "epochs_total": None,
+        "epochs_done": 0,
+        "metrics": None,
+        "history": [],
+        "eta_seconds": None,
+        "elapsed_seconds": None,
+        "last_modified": run_dir.stat().st_mtime,
+    }
+    # Parse args.yaml for total epoch count.
+    args_yaml = run_dir / "args.yaml"
+    if args_yaml.exists():
+        try:
+            for line in args_yaml.read_text().splitlines():
+                s = line.strip()
+                if s.startswith("epochs:"):
+                    try:
+                        info["epochs_total"] = int(s.split(":", 1)[1].strip())
+                    except ValueError:
+                        pass
+                    break
+        except Exception:
+            pass
+    # Parse results.csv for per-epoch metrics.
+    results_csv = run_dir / "results.csv"
+    if results_csv.exists():
+        try:
+            with open(results_csv) as f:
+                rows = list(_csv.DictReader(f))
+            cleaned = [_clean_training_row(r) for r in rows]
+            info["history"] = cleaned
+            info["epochs_done"] = len(cleaned)
+            if cleaned:
+                info["metrics"] = cleaned[-1]
+                # Ultralytics' "time" column is cumulative seconds.
+                last_time = cleaned[-1].get("time")
+                if last_time is not None:
+                    info["elapsed_seconds"] = float(last_time)
+                # ETA = remaining_epochs * avg_epoch_time
+                if info["epochs_total"] and last_time and len(cleaned) >= 1:
+                    avg = float(last_time) / len(cleaned)
+                    remaining = max(0, info["epochs_total"] - len(cleaned))
+                    info["eta_seconds"] = remaining * avg
+        except Exception:
+            pass
+    return info
+
+
+def _clean_training_row(row):
+    """Strip whitespace from keys, parse floats where possible."""
+    out = {}
+    for k, v in row.items():
+        key = (k or "").strip()
+        if not key:
+            continue
+        val = (v or "").strip()
+        if val == "":
+            out[key] = None
+            continue
+        try:
+            out[key] = float(val)
+        except ValueError:
+            out[key] = val
+    return out
+
+
+def _train_task_running():
+    """Is the 'cv_train' Windows scheduled task currently running?"""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        result = subprocess.run(
+            ["schtasks", "/query", "/tn", "cv_train", "/fo", "csv", "/nh"],
+            capture_output=True, text=True, timeout=3,
+        )
+        return "Running" in (result.stdout or "")
+    except Exception:
+        return False
+
+
+def _tail_train_log(n_lines: int = 20):
+    """Return the last clean lines of train.log. Filters out the
+    Ultralytics tqdm progress bars (they overwrite themselves with \\r
+    and would dominate the tail otherwise)."""
+    p = _REPO / "train.log"
+    if not p.exists():
+        return []
+    try:
+        text = p.read_text(errors="ignore", encoding="utf-8")
+    except Exception:
+        return []
+    # Split on both \r and \n so progress-bar updates become separate
+    # lines we can filter.
+    parts = text.replace("\r", "\n").split("\n")
+    kept = []
+    for raw in parts:
+        line = raw.strip()
+        if not line:
+            continue
+        # Drop ANSI escape sequences inline.
+        if "\x1b[" in line:
+            import re as _re
+            line = _re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line)
+        # Skip progress-bar lines (they have "it/s" + "<" remaining time).
+        if "it/s" in line and "<" in line:
+            continue
+        # Skip the "[K" carriage-control prefix Ultralytics emits.
+        if line.startswith("[K"):
+            line = line[2:].strip()
+            if not line:
+                continue
+        kept.append(line)
+    return kept[-n_lines:]
+
+
 @app.route("/api/snapshots/stats")
 def api_snapshot_stats():
     """Lifetime aggregate counts (total / scored / unscored / correct /
