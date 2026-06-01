@@ -5,7 +5,7 @@ detect a person (person_count > 0 in state_json) back to "correct".
 Operator-requested one-shot cleanup (2026-06-01): a sweep of "incorrect"
 labels turned out to be applied to frames where the system was actually
 right (real baby visible, activity=sitting, persons=1). The Summary
-flip logic correctly bucketed those as "Out of bed" (incorrect →
+flip logic correctly bucketed those as "Out of bed" (incorrect ->
 flip the IN-bed system call to OUT). The operator wants those flipped
 back to "correct" so the bucketing returns to In-bed.
 
@@ -99,10 +99,10 @@ def main() -> int:
             kept_zero_persons += 1
 
     print()
-    print(f"  → flip to correct (persons > 0):    {len(to_flip):>5}")
-    print(f"  → keep as incorrect (persons = 0):  {kept_zero_persons:>5}")
-    print(f"  → keep (no state_json)              {kept_no_state:>5}")
-    print(f"  → keep (corrupt state_json)         {bad_state:>5}")
+    print(f"  -> flip to correct (persons > 0):    {len(to_flip):>5}")
+    print(f"  -> keep as incorrect (persons = 0):  {kept_zero_persons:>5}")
+    print(f"  -> keep (no state_json)              {kept_no_state:>5}")
+    print(f"  -> keep (corrupt state_json)         {bad_state:>5}")
 
     if not to_flip:
         print()
