@@ -423,6 +423,22 @@
 .snap-cell.snap-act-running       { border-color: #6ba9e0; } /* light blue */
 .snap-cell.snap-act-out_of_frame  { border-color: var(--error); } /* red — no baby */
 
+/* Subtle pulsing glow on red-bordered cells so "no baby" frames are
+   easy to spot as you scroll. drop-shadow plays nicely with the
+   existing 3 px border (no clipping from overflow: hidden) and
+   doesn't fight with the inset rings on labelled cells. */
+@keyframes snap-redborder-pulse {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(226, 48, 71, 0)); }
+  50%      { filter: drop-shadow(0 0 6px rgba(226, 48, 71, 0.65)); }
+}
+.snap-cell.snap-act-out_of_frame {
+  animation: snap-redborder-pulse 2.4s ease-in-out infinite;
+}
+/* Respect users who've asked for reduced motion (OS-level setting). */
+@media (prefers-reduced-motion: reduce) {
+  .snap-cell.snap-act-out_of_frame { animation: none; }
+}
+
 /* Small label badge in the top-left so the state is readable
    without remembering the color code. */
 .snap-act-tag {
