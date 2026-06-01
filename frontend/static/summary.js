@@ -288,28 +288,65 @@ async function loadOverallStats() {
   }
 }
 
-// Sum up per-track segments into (value → total seconds) maps.
+// Per-day aggregates derived FROM SNAPSHOTS (not the raw activity
+// track) so operator labels propagate to the overview row totals.
+// Each snapshot covers the midpoint-to-midpoint interval between its
+// neighbours; bed state is the label-corrected value (same logic the
+// detail-view periods use). Activity attribution only counts in-bed
+// time AND only when the system can be trusted on that frame:
+//   correct        — trust system's activity classification
+//   unlabelled     — trust system's activity classification
+//   incorrect+FP   — already counts as out-of-bed (no activity)
+//   incorrect+FN   — system missed; activity is unknown → "other"
 function computeDayStats(data) {
-  const tracks = data?.tracks || {};
-  const sumBy = (track) => {
-    const out = {};
-    for (const s of (tracks[track] || [])) {
-      out[s.value] = (out[s.value] || 0) + (s.end_ts - s.start_ts);
-    }
-    return out;
-  };
-  const byActivity = sumBy("activity");
-  const byMotion = sumBy("motion");
+  const snaps = data?.snapshots || [];
+  if (snaps.length === 0) return null;
+  const sorted = [...snaps].sort((a, b) => a.captured_at - b.captured_at);
 
-  const totalOutBed = byActivity["out_of_frame"] || 0;
+  const FALLBACK_HALF_INTERVAL_S = 30;
   let totalInBed = 0;
-  for (const [v, sec] of Object.entries(byActivity)) {
-    if (v !== "out_of_frame") totalInBed += sec;
+  let totalOutBed = 0;
+  const byActivity = {};
+  const byMotion = {};
+
+  for (let i = 0; i < sorted.length; i++) {
+    const s = sorted[i];
+    const prev = sorted[i - 1];
+    const next = sorted[i + 1];
+    const start = prev
+      ? (prev.captured_at + s.captured_at) / 2
+      : s.captured_at - FALLBACK_HALF_INTERVAL_S;
+    const end = next
+      ? (s.captured_at + next.captured_at) / 2
+      : s.captured_at + FALLBACK_HALF_INTERVAL_S;
+    const dur = Math.max(0, end - start);
+
+    const bed = _bedFromSnapshot(s);
+    if (bed === SUM_BED_IN) {
+      totalInBed += dur;
+      // System's activity classification is only meaningful when the
+      // system itself agreed (it said baby was there). For a missed-
+      // baby case (label=incorrect + persons=0), we know the baby
+      // WAS in bed but have no activity classification — bucket as
+      // "other" so the bar still sums to 100%.
+      const persons = (s.state && s.state.person_count) || 0;
+      const trustActivity = persons > 0 && s.label !== "incorrect"
+        || persons > 0 && s.label === "correct";
+      const act = trustActivity
+        ? ((s.state && s.state.activity) || "other")
+        : "other";
+      byActivity[act] = (byActivity[act] || 0) + dur;
+    } else {
+      totalOutBed += dur;
+    }
+
+    // Motion track is independent of label (it measures the actual
+    // image-space motion regardless of what the system thinks).
+    const mot = (s.state && s.state.motion) || "unknown";
+    byMotion[mot] = (byMotion[mot] || 0) + dur;
   }
 
-  // Activity %s computed over IN-BED time only (out_of_frame is
-  // shown separately as "Out of bed"). Bucket non-listed states
-  // into "other" so the bar always sums to 100%.
+  // Activity %s computed over IN-BED time only.
   const activityPct = {};
   if (totalInBed > 0) {
     let listed = 0;
@@ -322,8 +359,7 @@ function computeDayStats(data) {
     if (other > 0.5) activityPct.other = (other / totalInBed) * 100;
   }
 
-  // Motion %s over the WHOLE day (motion is captured regardless of
-  // whether baby is in frame, and "unknown" rolls into a muted slice).
+  // Motion %s over the WHOLE day.
   const motionPct = {};
   let motionTotal = 0;
   for (const sec of Object.values(byMotion)) motionTotal += sec;
