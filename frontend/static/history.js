@@ -527,6 +527,12 @@ function renderSnapshots(snaps) {
       const s = _currentSnaps[idx];
       if (!s) return;
       if (_selectMode) {
+        // Alt+click selects the entire visual row of the clicked cell.
+        if (ev.altKey) {
+          selectRowOf(el);
+          _lastSelIdx = idx;
+          return;
+        }
         // Shift+click selects a range from the last anchor to this idx.
         if (ev.shiftKey && _lastSelIdx != null) {
           const [lo, hi] = idx < _lastSelIdx ? [idx, _lastSelIdx] : [_lastSelIdx, idx];
@@ -547,7 +553,10 @@ function renderSnapshots(snaps) {
     });
   });
   // Re-apply selected styling after a re-render (e.g. after a filter change).
-  if (_selectMode) updateSelectionUI();
+  if (_selectMode) {
+    updateSelectionUI();
+    refreshRowHandles();
+  }
 }
 
 // ---- lightbox --------------------------------------------------------
@@ -728,8 +737,69 @@ function setSelectMode(on) {
   selectToggleBtn.classList.toggle("active", on);
   snapGrid.classList.toggle("select-mode", on);
   bulkBar.hidden = !on;
+  const hint = document.getElementById("snap-bulk-hint");
+  if (hint) hint.hidden = !on;
+  updateSelectionUI();
+  refreshRowHandles();
+}
+
+// Visual-row select: in selection mode, the leftmost cell of every
+// visual row gets a small "Row" handle. Clicking it (or Alt+clicking
+// any cell) selects every other cell sharing that cell's offsetTop —
+// i.e. the whole row at the current viewport width.
+function selectRowOf(rowAnchorCell) {
+  const top = rowAnchorCell.offsetTop;
+  snapGrid.querySelectorAll(".snap-cell").forEach((el) => {
+    if (el.offsetTop === top) {
+      const idx = Number(el.dataset.idx);
+      const s = _currentSnaps[idx];
+      if (s) _selectedIds.add(s.id);
+    }
+  });
   updateSelectionUI();
 }
+
+function refreshRowHandles() {
+  // Tear down any existing handles first — the grid may have re-flowed
+  // (resize, filter change, mode toggle) and the row anchors changed.
+  snapGrid.querySelectorAll(".snap-row-handle").forEach((h) => h.remove());
+  if (!_selectMode) return;
+  const cells = Array.from(snapGrid.querySelectorAll(".snap-cell"));
+  if (cells.length === 0) return;
+  // Group cells by offsetTop; the cell at the smallest offsetLeft in
+  // each group is the row anchor.
+  const minLeftByTop = new Map();
+  for (const c of cells) {
+    const t = c.offsetTop;
+    const l = c.offsetLeft;
+    if (!minLeftByTop.has(t) || l < minLeftByTop.get(t)) {
+      minLeftByTop.set(t, l);
+    }
+  }
+  for (const c of cells) {
+    if (c.offsetLeft !== minLeftByTop.get(c.offsetTop)) continue;
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "snap-row-handle";
+    handle.title = "Select entire row (or Alt+click any cell)";
+    handle.textContent = "Row";
+    handle.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      selectRowOf(c);
+    });
+    c.appendChild(handle);
+  }
+}
+
+// Re-compute row anchors when the grid re-flows. Debounced so it
+// doesn't fire on every pixel of a window drag.
+let _resizeTimer = null;
+window.addEventListener("resize", () => {
+  if (!_selectMode) return;
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(refreshRowHandles, 80);
+});
 
 function updateSelectionUI() {
   bulkCountEl.textContent = `${_selectedIds.size} selected`;
