@@ -205,20 +205,23 @@
 }
 
 /* ----- Activity colors ----- */
-.v-activity-asleep        { background: rgba(99, 66, 221, 0.85); }
+.v-activity-asleep        { background: rgba(99, 66, 221, 0.85); } /* purple */
 .v-activity-resting,
-.v-activity-lying         { background: rgba(11, 176, 186, 0.65); }
+.v-activity-lying         { background: rgba(11, 176, 186, 0.65); } /* teal */
 .v-activity-sitting_calm,
-.v-activity-sitting       { background: rgba(24, 160, 82, 0.7); }
+.v-activity-sitting       { background: rgba(24, 160, 82, 0.7); } /* green */
 .v-activity-playing,
-.v-activity-fidgeting     { background: rgba(217, 147, 0, 0.7); }
+.v-activity-fidgeting     { background: rgba(217, 147, 0, 0.7); } /* amber */
 .v-activity-restless,
 .v-activity-very_active,
-.v-activity-moving_a_lot  { background: rgba(226, 48, 71, 0.7); }
+.v-activity-moving_a_lot  { background: rgba(240, 138, 31, 0.7); } /* orange */
 .v-activity-standing,
 .v-activity-walking,
-.v-activity-running       { background: rgba(99, 167, 220, 0.7); }
-.v-activity-out_of_frame,
+.v-activity-running       { background: rgba(99, 167, 220, 0.7); } /* light blue */
+/* out_of_frame on the timeline is red — same alarming colour as the
+   snap-cell borders so a stretch of "no baby" stands out at a glance.
+   "uncertain" stays muted gray since it's literally lack of decision. */
+.v-activity-out_of_frame  { background: rgba(226, 48, 71, 0.55); }
 .v-activity-uncertain     { background: rgba(154, 154, 166, 0.35); }
 .v-activity-transitioning,
 .v-activity-upright_still,
@@ -401,20 +404,24 @@
 }
 
 /* Activity-state border colors — matches the timeline track pills. */
-.snap-cell.snap-act-asleep        { border-color: #6342dd; }
+/* Border palette: red is reserved for out_of_frame / no baby (it's the
+   alarming state worth scanning for). Real-baby states get distinct
+   non-red colours so the wall of thumbnails reads as "where's the gap?"
+   not "everything is alarming". */
+.snap-cell.snap-act-asleep        { border-color: #6342dd; } /* purple */
 .snap-cell.snap-act-lying,
-.snap-cell.snap-act-resting       { border-color: var(--accent); }
+.snap-cell.snap-act-resting       { border-color: var(--accent); } /* teal */
 .snap-cell.snap-act-sitting,
-.snap-cell.snap-act-sitting_calm  { border-color: var(--success); }
+.snap-cell.snap-act-sitting_calm  { border-color: var(--success); } /* green */
 .snap-cell.snap-act-playing,
-.snap-cell.snap-act-fidgeting     { border-color: var(--warning); }
+.snap-cell.snap-act-fidgeting     { border-color: var(--warning); } /* amber */
 .snap-cell.snap-act-restless,
 .snap-cell.snap-act-very_active,
-.snap-cell.snap-act-moving_a_lot  { border-color: var(--error); }
+.snap-cell.snap-act-moving_a_lot  { border-color: #f08a1f; } /* orange */
 .snap-cell.snap-act-standing,
 .snap-cell.snap-act-walking,
-.snap-cell.snap-act-running       { border-color: #6ba9e0; }
-.snap-cell.snap-act-out_of_frame  { border-color: #5a5a66; }
+.snap-cell.snap-act-running       { border-color: #6ba9e0; } /* light blue */
+.snap-cell.snap-act-out_of_frame  { border-color: var(--error); } /* red — no baby */
 
 /* Small label badge in the top-left so the state is readable
    without remembering the color code. */
@@ -929,11 +936,11 @@
 .pill-act-fidgeting     { background: rgba(217, 147, 0, 0.16); color: var(--warning); }
 .pill-act-restless,
 .pill-act-very_active,
-.pill-act-moving_a_lot  { background: rgba(226, 48, 71, 0.16); color: var(--error); }
+.pill-act-moving_a_lot  { background: rgba(240, 138, 31, 0.16); color: #f08a1f; }
 .pill-act-standing,
 .pill-act-walking,
 .pill-act-running       { background: rgba(99, 167, 220, 0.16); color: #6ba9e0; }
-.pill-act-out_of_frame  { background: rgba(154, 154, 166, 0.16); color: var(--text-muted); }
+.pill-act-out_of_frame  { background: rgba(226, 48, 71, 0.16); color: var(--error); }
 
 .lb-close {
   position: absolute;
