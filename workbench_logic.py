@@ -988,6 +988,92 @@ def log_frame_scores(
     print(f"[score] near_hands: {near_hands_label}", flush=True)
 
 
+def is_plausible_skeleton(
+    pose: "PersonPose",
+    *,
+    min_kp_bbox_span: float = 60.0,
+    min_shoulder_spread: float = 15.0,
+    min_torso_aspect: float = 0.6,
+    kp_conf_for_check: float = 0.30,
+) -> bool:
+    """Anatomical sanity check on a pose detection.
+
+    A pose can pass _credible_pose (5+ keypoints at 0.45 conf) by being
+    fit onto a stuffed bear or a blanket arrangement — the bear has
+    arms and legs sticking out, so the model finds keypoints, but the
+    overall geometry is wrong: keypoints cluster in a tight blob, the
+    "shoulders" are 5 px apart, the "torso" is wider than it is tall,
+    etc. This function rejects those geometry-implausible fits while
+    keeping real baby poses.
+
+    Checks (all "if both required keypoints are confident, then..."):
+
+      1. Keypoint bbox span — strong keypoints together must span at
+         least ``min_kp_bbox_span`` pixels in at least one direction.
+         Rules out tight blobs.
+      2. Shoulder spread — left/right shoulders must be at least
+         ``min_shoulder_spread`` pixels apart. Rules out collapsed
+         shoulder pairs common on toy fits.
+      3. Torso aspect — shoulder-mid to hip-mid distance must be at
+         least ``min_torso_aspect`` * shoulder spread. Rules out
+         comically wide-short "torsos" the model produces on bear
+         poses.
+
+    A pose with too-sparse confident keypoints (can't evaluate
+    anatomy) is allowed through (returns True) — we prefer to fall
+    back to the existing confidence floors rather than reject for
+    lack of evidence.
+    """
+    if pose.keypoints_xy is None or pose.keypoints_conf is None:
+        return True
+    kps = pose.keypoints_xy
+    confs = pose.keypoints_conf
+    n = min(len(kps), len(confs))
+
+    def kp(i: int):
+        if i >= n or float(confs[i]) < kp_conf_for_check:
+            return None
+        return float(kps[i][0]), float(kps[i][1])
+
+    def dist(a, b) -> float:
+        return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+    # COCO keypoint indices: 5=L shoulder, 6=R shoulder, 11=L hip,
+    # 12=R hip. Other useful ones: 0=nose, 13/14=knees, 15/16=ankles.
+    confident_pts = []
+    for i in range(n):
+        if float(confs[i]) >= kp_conf_for_check:
+            confident_pts.append((float(kps[i][0]), float(kps[i][1])))
+
+    # 1. Keypoint bbox span — too small means we're staring at a blob.
+    if confident_pts:
+        xs = [p[0] for p in confident_pts]
+        ys = [p[1] for p in confident_pts]
+        span = max(max(xs) - min(xs), max(ys) - min(ys))
+        if span < min_kp_bbox_span:
+            return False
+
+    # 2. Shoulder spread.
+    ls, rs = kp(5), kp(6)
+    if ls is not None and rs is not None:
+        if dist(ls, rs) < min_shoulder_spread:
+            return False
+
+    # 3. Torso aspect (shoulder-mid → hip-mid distance vs shoulder
+    #    spread). A real torso has length >= width * 0.6; a bear-pose
+    #    has length << width.
+    lh, rh = kp(11), kp(12)
+    if ls is not None and rs is not None and lh is not None and rh is not None:
+        shoulder_mid = ((ls[0] + rs[0]) / 2, (ls[1] + rs[1]) / 2)
+        hip_mid = ((lh[0] + rh[0]) / 2, (lh[1] + rh[1]) / 2)
+        torso_len = dist(shoulder_mid, hip_mid)
+        shoulder_w = dist(ls, rs)
+        if shoulder_w > 0 and torso_len < min_torso_aspect * shoulder_w:
+            return False
+
+    return True
+
+
 def _det_iou(a: YoloDetection, b: YoloDetection) -> float:
     ix1 = max(a.x1, b.x1)
     iy1 = max(a.y1, b.y1)

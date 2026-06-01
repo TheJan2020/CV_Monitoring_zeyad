@@ -107,9 +107,16 @@ class BabyTracker:
         # After ``stable_lock_grace`` seconds of lock age, if the bbox
         # center has drifted less than ``stable_lock_max_drift`` pixels
         # over the trailing ``stable_lock_window`` window, release.
+        # Position-stability tuning (2026-06-01): bumped after audit of
+        # 999 incorrect labels on a real day showed the bear-on-crib FPs
+        # were drifting 6-12 px frame-to-frame within the old 120 s /
+        # 8 px window — narrowly above the release threshold. Wider
+        # window + slightly looser drift catches the sustained sub-15 px
+        # noise without releasing sleeping-baby locks that genuinely
+        # show 15+ px of breathing motion over 3 minutes.
         stable_lock_grace: float = 60.0,
-        stable_lock_window: float = 120.0,
-        stable_lock_max_drift: float = 8.0,
+        stable_lock_window: float = 180.0,
+        stable_lock_max_drift: float = 12.0,
     ) -> None:
         self.acquire_frames = max(1, int(acquire_frames))
         self.iou_match = iou_match

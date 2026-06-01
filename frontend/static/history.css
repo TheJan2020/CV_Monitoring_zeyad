@@ -893,6 +893,15 @@
 .lb-label-status.status-incorrect { color: var(--error, #e23047); font-style: normal; font-weight: 600; }
 .lb-label-status.status-error     { color: var(--error, #e23047); font-style: normal; font-weight: 600; }
 
+.lb-label-help {
+  padding: 0 22px 12px;
+  font-size: 11.5px;
+  background: var(--surface);
+  border-top: 1px dashed var(--border);
+  margin: 0;
+}
+.lb-label-help strong { color: var(--text); font-weight: 600; }
+
 .param-row {
   display: flex;
   justify-content: space-between;

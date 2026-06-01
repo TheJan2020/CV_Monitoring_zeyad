@@ -126,6 +126,7 @@ from workbench_logic import (
     collect_yolo_pose_persons,
     consolidate_person_detections,
     dedupe_person_poses,
+    is_plausible_skeleton,
     count_person_detections,
     count_phones_in_frame,
     infer_wrists_from_yolo,
@@ -564,41 +565,39 @@ def main() -> None:
             # into the BabyTracker, so even though the lock didn't form,
             # the underlying YoloDetection still drew on the stream.
             if baby_tracker is not None:
-                # Pose-corroboration filter — two-tier confidence floor:
+                # Pose-corroboration filter — THREE-tier confidence floor
+                # (added 2026-06-01 after analysing 999 incorrect labels
+                # from one day on this camera):
                 #
-                #   POSE_OK_CONF_FLOOR (0.40): pose model found at least one
-                #     skeleton SOMEWHERE in the frame this iteration. Pose is
-                #     healthy, so an uncorroborated YOLO box at >= 0.40 conf
-                #     is plausible — keep.
+                #   PLAUSIBLE_FLOOR     (0.40): at least one pose is
+                #     credible (5+ kp at 0.45) AND anatomically plausible
+                #     (skeleton has real-baby proportions — passes
+                #     is_plausible_skeleton). YOLO box >= 0.40 conf with
+                #     a keypoint inside it is accepted.
                 #
-                #   NO_POSE_CONF_FLOOR (0.85): pose model found nothing
-                #     anywhere. Either (a) frame really has no people, or
-                #     (b) IR/occlusion is hiding everyone. We can't tell from
-                #     YOLO alone — require very strong YOLO conf, otherwise
-                #     drop. This is the rule that catches stuffed-toy /
-                #     bottle / blanket false positives at 0.40-0.65 conf
-                #     that the original single-floor 0.40 let through.
+                #   CREDIBLE_ONLY_FLOOR (0.75): pose model returned a
+                #     credible-looking detection by keypoint count, but
+                #     the geometry is wrong (shoulders 5 px apart, tiny
+                #     keypoint cluster, etc) — typical bear pose. Don't
+                #     let the cheap 0.40 floor through; require strong
+                #     YOLO conf to keep the box.
                 #
-                # Real-baby IR detections in this setup observed at 0.22-0.50
-                # — they always have at least head/shoulder keypoints, so
-                # they pass via the corroboration branch, not the floor.
+                #   NO_POSE_CONF_FLOOR  (0.92): no credible pose anywhere.
+                #     Either no people, or IR/occlusion. YOLO alone
+                #     must be very confident.
+                #
+                # Real-baby IR detections in this setup observed at
+                # 0.22-0.50 — they pass via the corroboration branch
+                # (kp inside bbox), not the floor, so the tightening
+                # has no effect on the happy path.
                 KP_CONF_FOR_CORR = 0.30
-                POSE_OK_CONF_FLOOR = 0.40
+                PLAUSIBLE_FLOOR = 0.40
+                CREDIBLE_ONLY_FLOOR = 0.75
                 NO_POSE_CONF_FLOOR = 0.92
 
-                # "pose present" used to mean ``len(person_poses) > 0`` —
-                # but the pose model happily returns sparse low-conf
-                # detections on stuffed toys / bears, which then dragged
-                # the floor down to 0.40 and let a 0.80-conf YOLO box
-                # on a teddy bear lock the system for >1 hour.
-                #
-                # Tighter rule: a "credible pose" needs >= 5 keypoints
-                # at conf >= 0.45 — matches the synthesize_person_from_pose
-                # bar, so the same evidence that would synthesize a
-                # person is the same evidence that relaxes the YOLO
-                # floor. Anything less is pose noise; treat as no-pose
-                # and require very strong YOLO conf (0.92).
                 def _credible_pose(pp) -> bool:
+                    """5+ keypoints at >= 0.45 conf — the bar that also
+                    gates :func:`synthesize_person_from_pose`."""
                     if pp.keypoints_conf is None:
                         return False
                     return sum(
@@ -606,16 +605,26 @@ def main() -> None:
                     ) >= 5
 
                 credible_poses = [pp for pp in person_poses if _credible_pose(pp)]
-                no_pose_floor = (
-                    POSE_OK_CONF_FLOOR if credible_poses
-                    else NO_POSE_CONF_FLOOR
-                )
+                # Anatomical filter on top of credibility — kills bear /
+                # blanket-shape fits where the keypoints exist but the
+                # geometry doesn't make sense for a human body.
+                plausible_poses = [
+                    pp for pp in credible_poses if is_plausible_skeleton(pp)
+                ]
+                if plausible_poses:
+                    no_pose_floor = PLAUSIBLE_FLOOR
+                elif credible_poses:
+                    no_pose_floor = CREDIBLE_ONLY_FLOOR
+                else:
+                    no_pose_floor = NO_POSE_CONF_FLOOR
 
-                # Corroboration only counts keypoints from credible poses —
-                # otherwise a single noisy keypoint inside the bear's
-                # bbox could trivially "corroborate" it.
+                # Corroboration only counts keypoints from PLAUSIBLE
+                # poses — credible-but-not-plausible (i.e. bear-shaped)
+                # poses can't vouch for any YOLO box. Without this the
+                # bear poses would still trivially corroborate the bear
+                # YOLO box and bypass the floor entirely.
                 def _corroborated_by_pose(det) -> bool:
-                    for pp in credible_poses:
+                    for pp in plausible_poses:
                         if pp.keypoints_xy is None or pp.keypoints_conf is None:
                             continue
                         n = min(len(pp.keypoints_xy), len(pp.keypoints_conf))
