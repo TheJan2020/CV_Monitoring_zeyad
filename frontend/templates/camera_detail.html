@@ -320,6 +320,12 @@ const cyc = {
   lastTickMs: null,     // last animation-frame tick (ms)
   frozen: false,        // true once the verdict locked in for this window
   lastKnownSnapId: null,
+  // If the operator lands mid-cycle (e.g. 42 / 180), we can't honestly
+  // know what happened during the first 42 s — we weren't watching.
+  // skipUntilNextWindow holds the meters at "—" until the next snapshot
+  // save lands, at which point cycSyncFromHistory clears it and the
+  // counters start from a clean zero.
+  skipUntilNextWindow: false,
 };
 
 function _cycEl(id) { return document.getElementById(id); }
@@ -337,18 +343,33 @@ async function cycSyncFromHistory() {
     const data = await r.json();
     const snaps = data.snapshots || [];
     if (snaps.length === 0) {
+      // No snapshots today yet — start counting from now, no skip.
       if (cyc.windowStartT === null) {
         cyc.windowStartT = Date.now() / 1000;
+        cyc.skipUntilNextWindow = false;
       }
       return;
     }
     const latest = snaps[snaps.length - 1];
+    const isFirstSync = cyc.lastKnownSnapId === null;
     if (cyc.lastKnownSnapId !== latest.id) {
       cyc.lastKnownSnapId = latest.id;
       cyc.windowStartT = latest.captured_at;
       cyc.inSecs = 0;
       cyc.outSecs = 0;
       cyc.frozen = false;
+      cyc.lastTickMs = null;
+      if (isFirstSync) {
+        // First time we're seeing data: did we land mid-cycle?
+        // If the window has been running for more than a few seconds
+        // already, skip the meters until the NEXT clean window starts.
+        const elapsed = (Date.now() / 1000) - latest.captured_at;
+        cyc.skipUntilNextWindow = elapsed > 3;
+      } else {
+        // A genuinely-new snapshot arrived during this session —
+        // we were syncing properly, so start counting cleanly.
+        cyc.skipUntilNextWindow = false;
+      }
     }
   } catch (e) { /* ignore */ }
 }
@@ -364,6 +385,33 @@ function cycRender(act) {
   const now = Date.now() / 1000;
   const elapsed = Math.max(0, Math.floor(now - cyc.windowStartT));
   const remaining = Math.max(0, CAPTURE_INTERVAL_S - elapsed);
+
+  // Always show the countdown (it's honest — we know the wall-clock
+  // elapsed since the last server snapshot). The meters are gated.
+  _cycEl("cd-cyc-elapsed").textContent = elapsed;
+  _cycEl("cd-cyc-fill").style.width = Math.min(100, (elapsed / CAPTURE_INTERVAL_S) * 100).toFixed(1) + "%";
+  _cycEl("cd-cyc-eta").textContent =
+    remaining > 0 ? `next snapshot in ${remaining} s`
+                  : `waiting for snapshot save…`;
+
+  const verdict = _cycEl("cd-cyc-verdict");
+  const verdictVal = _cycEl("cd-cyc-verdict-val");
+
+  if (cyc.skipUntilNextWindow) {
+    // We landed mid-cycle — can't honestly say what happened in the
+    // first part of this window. Hold the meters at "—" until the
+    // next snapshot save resets things cleanly.
+    _cycEl("cd-cyc-in-secs").textContent  = "—";
+    _cycEl("cd-cyc-out-secs").textContent = "—";
+    _cycEl("cd-cyc-in-pct").textContent   = "—";
+    _cycEl("cd-cyc-out-pct").textContent  = "—";
+    _cycEl("cd-cyc-in-fill").style.width  = "0%";
+    _cycEl("cd-cyc-out-fill").style.width = "0%";
+    verdictVal.textContent =
+      `waiting for next snapshot save (in ${remaining} s) to begin counting…`;
+    verdict.className = "cd-cycle-verdict";
+    return;
+  }
 
   if (!cyc.frozen) {
     // Bucket-of-truth: we only track the COMPLETED tick, so on the
@@ -382,8 +430,6 @@ function cycRender(act) {
   const totalCounted = cyc.inSecs + cyc.outSecs;
   const inPct  = totalCounted > 0 ? (cyc.inSecs  / totalCounted) * 100 : 0;
   const outPct = totalCounted > 0 ? (cyc.outSecs / totalCounted) * 100 : 0;
-  _cycEl("cd-cyc-elapsed").textContent = elapsed;
-  _cycEl("cd-cyc-fill").style.width = Math.min(100, (elapsed / CAPTURE_INTERVAL_S) * 100).toFixed(1) + "%";
   _cycEl("cd-cyc-in-secs").textContent = cyc.inSecs;
   _cycEl("cd-cyc-out-secs").textContent = cyc.outSecs;
   _cycEl("cd-cyc-in-pct").textContent  = totalCounted > 0 ? inPct.toFixed(0) + "%" : "—";
@@ -391,13 +437,6 @@ function cycRender(act) {
   _cycEl("cd-cyc-in-fill").style.width  = inPct.toFixed(1) + "%";
   _cycEl("cd-cyc-out-fill").style.width = outPct.toFixed(1) + "%";
 
-  _cycEl("cd-cyc-eta").textContent =
-    remaining > 0 ? `next snapshot in ${remaining} s`
-                  : `waiting for snapshot save…`;
-
-  // Verdict
-  const verdict = _cycEl("cd-cyc-verdict");
-  const verdictVal = _cycEl("cd-cyc-verdict-val");
   if (totalCounted < 3) {
     verdictVal.textContent = "collecting…";
     verdict.className = "cd-cycle-verdict";
