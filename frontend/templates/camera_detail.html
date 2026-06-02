@@ -54,6 +54,44 @@
   </aside>
 </div>
 
+<!-- Today's running counters & meters -->
+<section class="cd-today">
+  <div class="cd-today-head">
+    <h3>Today's snapshots</h3>
+    <span class="muted" id="cd-today-date"></span>
+  </div>
+
+  <div class="cd-today-grid">
+    <div class="cd-today-total">
+      <div class="cd-today-label">Total saved today</div>
+      <div class="cd-today-total-value" id="cd-total">—</div>
+      <div class="cd-today-sub muted" id="cd-total-sub">waiting…</div>
+    </div>
+
+    <div class="cd-meter cd-meter-in">
+      <div class="cd-meter-head">
+        <span class="cd-meter-title">Baby in crib</span>
+        <span class="cd-meter-pct" id="cd-in-pct">—</span>
+      </div>
+      <div class="cd-meter-bar"><div class="cd-meter-fill cd-meter-fill-in" id="cd-in-fill" style="width:0%"></div></div>
+      <div class="cd-meter-sub muted"><span id="cd-in-count">—</span> snapshots</div>
+    </div>
+
+    <div class="cd-meter cd-meter-out">
+      <div class="cd-meter-head">
+        <span class="cd-meter-title">Baby not in crib</span>
+        <span class="cd-meter-pct" id="cd-out-pct">—</span>
+      </div>
+      <div class="cd-meter-bar"><div class="cd-meter-fill cd-meter-fill-out" id="cd-out-fill" style="width:0%"></div></div>
+      <div class="cd-meter-sub muted"><span id="cd-out-count">—</span> snapshots</div>
+    </div>
+  </div>
+
+  <div class="cd-today-final muted" id="cd-final-sub">
+    Day average will lock in at midnight; running percentages refresh every 10 seconds.
+  </div>
+</section>
+
 <script>
 const camId = "{{ camera.id }}";
 
@@ -93,8 +131,15 @@ async function poll() {
     else if (act === "out_of_frame") sub = "no detection";
     document.getElementById("activity-sub").textContent = sub;
 
-    document.getElementById("posture").textContent = s.posture || "—";
-    document.getElementById("motion").textContent = s.motion || "—";
+    // Posture & motion are computed by the PoseStateTracker on whatever
+    // keypoints the pose model emitted this frame — independent of the
+    // YOLO-driven activity classifier. They can show stale "lying" /
+    // "active" values even when no real baby is detected (pose noise
+    // on curtains / bear / shadows). When activity says out_of_frame,
+    // hide them — there's no confirmed subject to attribute them to.
+    const noSubject = act === "out_of_frame";
+    document.getElementById("posture").textContent = noSubject ? "—" : (s.posture || "—");
+    document.getElementById("motion").textContent  = noSubject ? "—" : (s.motion  || "—");
     document.getElementById("persons").textContent = s.person_count ?? 0;
     document.getElementById("fps").textContent = (s.fps || 0).toFixed(1);
     document.getElementById("still").textContent = fmtSec(s.still_seconds);
@@ -117,5 +162,94 @@ function refreshLive() {
   liveImg.src = "/api/cameras/" + camId + "/snapshot?t=" + Date.now();
 }
 setInterval(refreshLive, 1000);
+
+// ---- today's saved-snapshot counters / meters ----------------------
+//
+// Per-snapshot in-crib decision uses the same logic as Summary:
+//   persons_count > 0  → system says baby in frame
+//   label "incorrect" flips that. "correct" / null trust the system.
+// So if you've been labelling, the meters reflect operator-corrected
+// truth; if not yet, they reflect raw system output.
+
+function todayISO() {
+  // Local-day string. Matches the API's date param expectation.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function inCribOf(snap) {
+  const persons = (snap.state && snap.state.person_count) || 0;
+  let inCrib = persons > 0;
+  if (snap.label === "incorrect") inCrib = !inCrib;
+  return inCrib;
+}
+
+document.getElementById("cd-today-date").textContent = todayISO();
+
+async function pollToday() {
+  try {
+    const r = await fetch(
+      "/api/history/" + camId + "?date=" + todayISO(),
+      { cache: "no-store" },
+    );
+    if (!r.ok) return;
+    const data = await r.json();
+    const snaps = data.snapshots || [];
+    const total = snaps.length;
+    let inCrib = 0;
+    for (const s of snaps) {
+      if (inCribOf(s)) inCrib += 1;
+    }
+    const outCrib = total - inCrib;
+    const inPct = total > 0 ? (inCrib / total) * 100 : 0;
+    const outPct = total > 0 ? (outCrib / total) * 100 : 0;
+
+    document.getElementById("cd-total").textContent = total.toLocaleString();
+    document.getElementById("cd-total-sub").textContent =
+      total === 0
+        ? "no snapshots saved yet today"
+        : `saved every ${guessIntervalSec(snaps)} s — running ${runningHours(snaps)} h so far`;
+
+    document.getElementById("cd-in-count").textContent = inCrib.toLocaleString();
+    document.getElementById("cd-out-count").textContent = outCrib.toLocaleString();
+    document.getElementById("cd-in-pct").textContent  = total > 0 ? inPct.toFixed(1) + "%" : "—";
+    document.getElementById("cd-out-pct").textContent = total > 0 ? outPct.toFixed(1) + "%" : "—";
+    document.getElementById("cd-in-fill").style.width  = inPct.toFixed(1) + "%";
+    document.getElementById("cd-out-fill").style.width = outPct.toFixed(1) + "%";
+
+    // Time until midnight as a "lock-in countdown".
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    const remainingS = Math.max(0, Math.round((midnight - now) / 1000));
+    const labelled = snaps.filter((s) => s.label).length;
+    document.getElementById("cd-final-sub").textContent =
+      total === 0
+        ? "Day average will lock in at midnight."
+        : `Running average from ${total} snapshots (${labelled} operator-labelled). Locks in in ${fmtSec(remainingS)}.`;
+  } catch (e) { /* ignore */ }
+}
+
+function guessIntervalSec(snaps) {
+  if (snaps.length < 2) return "?";
+  const gaps = [];
+  for (let i = 1; i < Math.min(snaps.length, 20); i++) {
+    gaps.push(snaps[i].captured_at - snaps[i - 1].captured_at);
+  }
+  gaps.sort((a, b) => a - b);
+  return Math.round(gaps[Math.floor(gaps.length / 2)]);
+}
+
+function runningHours(snaps) {
+  if (snaps.length < 2) return "0";
+  const span = snaps[snaps.length - 1].captured_at - snaps[0].captured_at;
+  return (span / 3600).toFixed(1);
+}
+
+pollToday();
+setInterval(pollToday, 10000);  // every 10 s — cheap, reads from cache
 </script>
 {% endblock %}
