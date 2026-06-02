@@ -156,6 +156,43 @@ def settings_page():
     )
 
 
+@app.route("/demo")
+def demo_page():
+    return render_template(
+        "demo.html",
+        user=session["user"],
+        active="demo",
+    )
+
+
+@app.route("/api/demo/analyze", methods=["POST"])
+def api_demo_analyze_proxy():
+    """Stream the JPEG frame through to the hub's demo endpoint and
+    relay the JSON back. Re-encodes as raw bytes with image/jpeg so
+    the hub sees one canonical shape regardless of how the browser
+    posted it (multipart or raw)."""
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+    from flask import Response
+    if "frame" in request.files:
+        jpeg = request.files["frame"].read()
+    else:
+        jpeg = request.get_data()
+    try:
+        req = Request(
+            "http://127.0.0.1:8000/api/demo/analyze",
+            data=jpeg,
+            method="POST",
+            headers={"Content-Type": "image/jpeg"},
+        )
+        with urlopen(req, timeout=15) as r:
+            return Response(r.read(), mimetype="application/json")
+    except HTTPError as e:
+        return Response(e.read() or b'{"error":"hub error"}', mimetype="application/json", status=e.code)
+    except URLError as e:
+        return jsonify({"error": f"hub unreachable: {e.reason}"}), 503
+
+
 @app.route("/api/settings")
 def api_settings_get_proxy():
     status, body = hub_client.get_settings()

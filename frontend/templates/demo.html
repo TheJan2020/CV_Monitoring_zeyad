@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Live Demo — PrimeAnalyze{% endblock %}
+{% block page_title %}Live Camera Demo{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='demo.css') }}">
+
+<section class="hist-section">
+  <p class="muted demo-help">
+    Activate your laptop or phone camera in the browser. Each frame is
+    sent over the Cloudflare tunnel to the GPU box, analysed by
+    YOLO11s, and the resulting bounding boxes are drawn back onto the
+    overlay below. Inference happens on a shared NVIDIA Quadro RTX 5000.
+    No frames are stored — every request is processed and discarded.
+  </p>
+
+  <div class="demo-stage">
+    <video id="demo-video" autoplay muted playsinline></video>
+    <canvas id="demo-overlay"></canvas>
+    <div id="demo-status" class="demo-status">camera off</div>
+  </div>
+
+  <div class="demo-controls">
+    <button class="btn" id="demo-start">▶ Start camera</button>
+    <button class="btn btn-secondary" id="demo-stop" hidden>■ Stop</button>
+    <label class="demo-cam-select" id="demo-cam-wrap" hidden>
+      <span>Camera</span>
+      <select id="demo-camera"></select>
+    </label>
+    <label class="demo-rate">
+      <span>Target FPS</span>
+      <input type="range" id="demo-fps" min="1" max="10" step="1" value="4">
+      <span id="demo-fps-val">4</span>
+    </label>
+    <label class="demo-conf">
+      <span>Conf ≥</span>
+      <input type="range" id="demo-conf" min="0.10" max="0.80" step="0.05" value="0.25">
+      <span id="demo-conf-val">0.25</span>
+    </label>
+  </div>
+
+  <div class="demo-stats">
+    <div class="demo-stat"><div class="demo-stat-k">Effective FPS</div><div class="demo-stat-v" id="demo-real-fps">—</div></div>
+    <div class="demo-stat"><div class="demo-stat-k">Inference (GPU)</div><div class="demo-stat-v" id="demo-inf-ms">—</div></div>
+    <div class="demo-stat"><div class="demo-stat-k">Round trip</div><div class="demo-stat-v" id="demo-rtt-ms">—</div></div>
+    <div class="demo-stat"><div class="demo-stat-k">Persons</div><div class="demo-stat-v" id="demo-persons">—</div></div>
+  </div>
+
+  <details class="demo-details">
+    <summary>How this works</summary>
+    <ol>
+      <li>The browser uses <code>getUserMedia</code> to access your camera (you'll see a permission prompt).</li>
+      <li>Every ~250 ms (4 fps default) a frame is drawn to a hidden canvas, encoded as JPEG ~70 % quality.</li>
+      <li>The JPEG is POSTed to <code>/api/demo/analyze</code> over HTTPS through the Cloudflare tunnel.</li>
+      <li>The hub runs YOLO11s on the GPU at 640 px imgsz, conf ≥ 0.25, and returns the bounding boxes as JSON.</li>
+      <li>The overlay canvas draws the boxes on top of the live video.</li>
+    </ol>
+  </details>
+</section>
+
+<script src="{{ url_for('static', filename='demo.js') }}"></script>
+{% endblock %}

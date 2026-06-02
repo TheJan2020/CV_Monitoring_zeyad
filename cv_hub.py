@@ -2350,6 +2350,32 @@ def api_settings_mqtt_status():
     return jsonify(mqtt_publisher.status())
 
 
+@app.route("/api/demo/analyze", methods=["POST"])
+def api_demo_analyze():
+    """Run YOLO on a single JPEG frame submitted by the live-browser-
+    camera demo. Accepts either:
+      - raw JPEG bytes as the request body (Content-Type: image/jpeg)
+      - multipart with a "frame" file field
+    Returns a JSON payload with detection bboxes + inference timing.
+    """
+    jpeg = None
+    if "frame" in request.files:
+        jpeg = request.files["frame"].read()
+    else:
+        jpeg = request.get_data()
+    if not jpeg or len(jpeg) < 100:
+        return jsonify({"error": "missing or empty frame"}), 400
+    if len(jpeg) > 5 * 1024 * 1024:
+        return jsonify({"error": "frame too large (>5 MB)"}), 413
+    try:
+        import mini_inference
+        # Cap inference image size on the public endpoint so a clever
+        # uploader can't ask for 4K processing.
+        return jsonify(mini_inference.analyze(jpeg, conf=0.25, imgsz=640))
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+
 @app.route("/healthz")
 def healthz():
     body = {
@@ -2388,6 +2414,13 @@ def main() -> None:
     except Exception as e:
         print(f"[hub] MQTT publisher init failed: {e}", file=sys.stderr)
     atexit.register(mqtt_publisher.stop)
+    # Warm up the demo YOLO model in a background thread so the first
+    # /api/demo/analyze request isn't penalised by the model load.
+    try:
+        import mini_inference
+        threading.Thread(target=mini_inference.warmup, name="demo-warmup", daemon=True).start()
+    except Exception as e:
+        print(f"[hub] demo YOLO warmup failed: {e}", file=sys.stderr)
     # Worker watchdog: respawns dead workers (e.g. when the RTSP feed
     # stalls and the worker bails out with "No frames received").
     # Disable with HUB_WATCHDOG=0 if you want to debug a hang.
