@@ -789,15 +789,23 @@ function renderPeriodThumbs(period) {
   }
   const html = picks.map((s) => {
     const url = `/api/snapshots/${s.file_rel}`;
-    const cls = "sum-thumb" + (s.label ? ` sum-thumb-${s.label}` : "");
+    // Border colour follows the system's activity classification —
+    // identical to History (red = out_of_frame / no baby, green =
+    // sitting, purple = asleep, etc). The operator's label moves to
+    // the corner badge ONLY so the two pieces of information never
+    // conflict visually: border = what the system saw, badge = what
+    // you said about it.
+    const act = (s.state && s.state.activity) || "";
+    const actCls = act ? ` snap-act-${act}` : "";
+    const labelCls = s.label ? ` sum-thumb-labeled-${s.label}` : "";
     const labelDot = s.label === "correct"
-      ? '<span class="sum-thumb-label sum-thumb-label-correct" title="Marked correct">✓</span>'
+      ? '<span class="sum-thumb-label sum-thumb-label-correct" title="You marked correct">✓</span>'
       : s.label === "incorrect"
-        ? '<span class="sum-thumb-label sum-thumb-label-incorrect" title="Marked incorrect — bed-state flipped">✗</span>'
+        ? '<span class="sum-thumb-label sum-thumb-label-incorrect" title="You marked incorrect (flips the bed bucket)">✗</span>'
         : "";
     return `
-      <a class="${cls}" href="${url}" target="_blank" rel="noopener"
-         title="${fmtClock(s.captured_at)}${s.label ? " (labeled " + s.label + ")" : ""}">
+      <a class="sum-thumb${actCls}${labelCls}" href="${url}" target="_blank" rel="noopener"
+         title="${fmtClock(s.captured_at)}${act ? " · " + act : ""}${s.label ? " · labeled " + s.label : ""}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         ${labelDot}
         <span class="sum-thumb-time">${fmtClock(s.captured_at)}</span>

@@ -303,8 +303,42 @@
   background: #000;
   text-decoration: none;
 }
-.sum-thumb-correct   { border-color: var(--success, #18a052); }
-.sum-thumb-incorrect { border-color: var(--error, #e23047); }
+/* Border colour follows the system's activity classification — same
+   palette as the History grid so the meaning stays consistent across
+   both pages: red = no baby (out_of_frame), other colours = detected
+   + classified. */
+.sum-thumb.snap-act-asleep        { border-color: #6342dd; }
+.sum-thumb.snap-act-lying,
+.sum-thumb.snap-act-resting       { border-color: var(--accent); }
+.sum-thumb.snap-act-sitting,
+.sum-thumb.snap-act-sitting_calm  { border-color: var(--success); }
+.sum-thumb.snap-act-playing,
+.sum-thumb.snap-act-fidgeting     { border-color: var(--warning); }
+.sum-thumb.snap-act-restless,
+.sum-thumb.snap-act-very_active,
+.sum-thumb.snap-act-moving_a_lot  { border-color: #f08a1f; }
+.sum-thumb.snap-act-standing,
+.sum-thumb.snap-act-walking,
+.sum-thumb.snap-act-running       { border-color: #6ba9e0; }
+.sum-thumb.snap-act-out_of_frame  { border-color: var(--error); }
+
+/* Subtle pulse on no-baby thumbs (matches History glow). */
+.sum-thumb.snap-act-out_of_frame {
+  animation: sum-redborder-pulse 2.4s ease-in-out infinite;
+}
+@keyframes sum-redborder-pulse {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(226, 48, 71, 0)); }
+  50%      { filter: drop-shadow(0 0 5px rgba(226, 48, 71, 0.6)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sum-thumb.snap-act-out_of_frame { animation: none; }
+}
+
+/* The operator's label is shown ONLY in the corner badge + a subtle
+   inset ring so it never competes with the activity-driven border
+   for meaning. */
+.sum-thumb.sum-thumb-labeled-correct   { box-shadow: inset 0 0 0 2px rgba(24, 160, 82, 0.55); }
+.sum-thumb.sum-thumb-labeled-incorrect { box-shadow: inset 0 0 0 2px rgba(226, 48, 71, 0.55); }
 
 .sum-thumb-label {
   position: absolute;
