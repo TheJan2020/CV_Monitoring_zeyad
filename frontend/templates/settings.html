@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Settings — PrimeAnalyze{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='settings.css') }}">
+
+<section class="hist-section">
+  <h3>MQTT — publish baby_in_crib to Home Assistant</h3>
+  <p class="muted set-help">
+    When enabled, the hub maintains a persistent MQTT connection to your
+    broker (usually Mosquitto on the same LAN) and publishes the
+    aggregate <code>baby_in_crib</code> state as <code>ON</code> or
+    <code>OFF</code> every time it changes. If <em>Home Assistant
+    Discovery</em> is on, the entity <code>binary_sensor.baby_in_crib</code>
+    appears in HA automatically with no extra YAML.
+  </p>
+
+  <form id="set-mqtt-form" class="set-form" autocomplete="off">
+    <label class="set-row">
+      <span>Enabled</span>
+      <input type="checkbox" id="mq-enabled">
+    </label>
+
+    <label class="set-row">
+      <span>Broker host</span>
+      <input type="text" id="mq-broker" placeholder="192.168.100.5">
+    </label>
+
+    <label class="set-row">
+      <span>Port</span>
+      <input type="number" id="mq-port" min="1" max="65535" placeholder="1883">
+    </label>
+
+    <label class="set-row">
+      <span>Transport</span>
+      <select id="mq-transport">
+        <option value="tcp">TCP (standard, port 1883/8883)</option>
+        <option value="websockets">WebSocket (port 8083/9001)</option>
+      </select>
+    </label>
+
+    <label class="set-row" id="mq-ws-row" hidden>
+      <span>WebSocket path</span>
+      <input type="text" id="mq-ws-path" placeholder="/mqtt">
+    </label>
+
+    <label class="set-row">
+      <span>Use TLS</span>
+      <input type="checkbox" id="mq-tls">
+    </label>
+
+    <label class="set-row">
+      <span>Username</span>
+      <input type="text" id="mq-username" autocomplete="off">
+    </label>
+
+    <label class="set-row">
+      <span>Password</span>
+      <input type="password" id="mq-password" autocomplete="new-password">
+    </label>
+
+    <label class="set-row">
+      <span>Client ID</span>
+      <input type="text" id="mq-client-id" placeholder="primeanalyze-hub">
+    </label>
+
+    <label class="set-row">
+      <span>Topic prefix</span>
+      <input type="text" id="mq-topic-prefix" placeholder="primeanalyze">
+    </label>
+
+    <label class="set-row">
+      <span>Home Assistant Discovery</span>
+      <input type="checkbox" id="mq-ha-discovery">
+    </label>
+
+    <label class="set-row">
+      <span>HA discovery prefix</span>
+      <input type="text" id="mq-ha-prefix" placeholder="homeassistant">
+    </label>
+
+    <label class="set-row">
+      <span>Device name (shown in HA)</span>
+      <input type="text" id="mq-device-name" placeholder="PrimeAnalyze Baby Monitor">
+    </label>
+
+    <div class="set-actions">
+      <button type="button" class="btn btn-secondary" id="mq-test">Test connection</button>
+      <button type="button" class="btn" id="mq-save">Save</button>
+      <span class="set-status" id="set-status"></span>
+    </div>
+  </form>
+</section>
+
+<section class="hist-section">
+  <h3>Live MQTT status</h3>
+  <div class="set-status-grid">
+    <div class="set-stat"><div class="set-stat-k">paho-mqtt installed</div><div class="set-stat-v" id="st-paho">…</div></div>
+    <div class="set-stat"><div class="set-stat-k">Connected</div><div class="set-stat-v" id="st-conn">…</div></div>
+    <div class="set-stat"><div class="set-stat-k">Last state</div><div class="set-stat-v" id="st-last">…</div></div>
+    <div class="set-stat" style="grid-column:1/-1"><div class="set-stat-k">Last message</div><div class="set-stat-v" id="st-msg">…</div></div>
+  </div>
+</section>
+
+<section class="hist-section">
+  <h3>How to wire this up on Home Assistant</h3>
+  <ol class="set-howto">
+    <li>Install <em>Mosquitto broker</em> from HA → Settings → Add-ons → Add-on Store. Start it.</li>
+    <li>HA → Settings → People → Add an MQTT-only user (e.g. <code>primeanalyze</code>) with a strong password.</li>
+    <li>HA → Settings → Devices &amp; Services → Add Integration → MQTT. Point it at the Mosquitto add-on. Confirm it shows "Connected".</li>
+    <li>Back here: tick "Enabled", fill broker IP (your HA host's LAN IP), port 1883 (TCP default), the MQTT username + password from step&nbsp;2, leave the rest as defaults. Click "Test connection" — should say "connected".</li>
+    <li>Click "Save". Within ~5 seconds, in HA → Settings → Devices &amp; Services → MQTT → Devices, a new device "PrimeAnalyze Baby Monitor" will appear with one entity: <code>binary_sensor.baby_in_crib</code>. That's the one to use in automations.</li>
+  </ol>
+  <p class="muted">
+    If you're using MQTT over WebSocket: switch <strong>Transport</strong>
+    to "WebSocket", set port 8083 (or whatever you configured in your
+    broker config), leave the WS path as <code>/mqtt</code> unless you've
+    customised it. TLS is independent of transport.
+  </p>
+</section>
+
+<script src="{{ url_for('static', filename='settings.js') }}"></script>
+{% endblock %}

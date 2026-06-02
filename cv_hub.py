@@ -58,6 +58,8 @@ from config_store import (
 )
 import state_recorder
 import clip_recorder
+import settings_store
+from mqtt_publisher import publisher as mqtt_publisher
 from datetime import datetime
 
 _REPO = Path(__file__).parent.resolve()
@@ -2286,6 +2288,68 @@ def api_snapshot(cam_id):
         return Response("timeout", status=503)
 
 
+@app.route("/api/settings")
+def api_settings_get():
+    """Return the current settings JSON, with the MQTT password
+    masked to a sentinel so we never echo it back into the form."""
+    s = settings_store.load()
+    mqtt = (s.get("mqtt") or {}).copy()
+    if mqtt.get("password"):
+        mqtt["password"] = "__keep__"
+    s["mqtt"] = mqtt
+    return jsonify(s)
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_settings_post():
+    """Update the settings JSON. ``mqtt.password`` may be sent as
+    "__keep__" to leave the stored value unchanged (so the form can
+    safely round-trip without learning the password)."""
+    body = request.get_json(silent=True) or {}
+    mqtt_in = (body.get("mqtt") or {})
+    current = settings_store.load()
+    current_mqtt = current.get("mqtt") or {}
+    new_mqtt = {**current_mqtt, **mqtt_in}
+    # Keep-password sentinel
+    if new_mqtt.get("password") == "__keep__":
+        new_mqtt["password"] = current_mqtt.get("password", "")
+    # Type / range sanity
+    try:
+        new_mqtt["port"] = int(new_mqtt.get("port") or 1883)
+    except (TypeError, ValueError):
+        return jsonify({"error": "port must be an integer"}), 400
+    if new_mqtt.get("transport") not in ("tcp", "websockets"):
+        return jsonify({"error": "transport must be 'tcp' or 'websockets'"}), 400
+    current["mqtt"] = new_mqtt
+    settings_store.save(current)
+    mqtt_publisher.reload(current)
+    # Echo back with password masked again.
+    masked = {**new_mqtt}
+    if masked.get("password"):
+        masked["password"] = "__keep__"
+    return jsonify({"ok": True, "mqtt": masked})
+
+
+@app.route("/api/settings/mqtt/test", methods=["POST"])
+def api_settings_mqtt_test():
+    """One-shot connection probe against the supplied settings
+    (no commit). Used by the Settings page 'Test connection' button."""
+    body = request.get_json(silent=True) or {}
+    # Same "keep" semantics as POST so the form can test without re-typing
+    # the password.
+    mqtt_in = (body.get("mqtt") or {}).copy()
+    if mqtt_in.get("password") == "__keep__":
+        current = (settings_store.load().get("mqtt") or {})
+        mqtt_in["password"] = current.get("password", "")
+    result = mqtt_publisher.test_connect({"mqtt": mqtt_in})
+    return jsonify(result)
+
+
+@app.route("/api/settings/mqtt/status")
+def api_settings_mqtt_status():
+    return jsonify(mqtt_publisher.status())
+
+
 @app.route("/healthz")
 def healthz():
     body = {
@@ -2315,6 +2379,15 @@ def main() -> None:
     _start_all_workers()
     _reconcile_clip_buffers()
     atexit.register(_clip_buffer_mgr.stop_all)
+    # MQTT publisher: reads config/settings.json and (if mqtt.enabled)
+    # connects to the broker in a background thread. Reload happens
+    # automatically when the operator saves a new MQTT block via the
+    # Settings page.
+    try:
+        mqtt_publisher.reload(settings_store.load())
+    except Exception as e:
+        print(f"[hub] MQTT publisher init failed: {e}", file=sys.stderr)
+    atexit.register(mqtt_publisher.stop)
     # Worker watchdog: respawns dead workers (e.g. when the RTSP feed
     # stalls and the worker bails out with "No frames received").
     # Disable with HUB_WATCHDOG=0 if you want to debug a hang.
@@ -2332,6 +2405,7 @@ def main() -> None:
         get_camera_fn=_camera_for_recorder,
         get_clip_buffer_fn=_clip_buffer_for_recorder,
         on_presence_fn=_on_presence_for_recorder,
+        on_baby_in_crib_fn=mqtt_publisher.set_baby_in_crib,
     )
     recorder.start()
     atexit.register(recorder.stop)

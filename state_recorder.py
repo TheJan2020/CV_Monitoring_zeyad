@@ -401,6 +401,7 @@ class StateRecorderThread(threading.Thread):
         get_camera_fn=None,
         get_clip_buffer_fn=None,
         on_presence_fn=None,
+        on_baby_in_crib_fn=None,
     ) -> None:
         super().__init__(daemon=True, name="StateRecorder")
         self.get_workers_fn = get_workers_fn
@@ -410,6 +411,11 @@ class StateRecorderThread(threading.Thread):
         # Used by the hub to idle-pause the clip ffmpeg ring buffer when no
         # person is in frame (saves an RTSP session against the camera).
         self.on_presence_fn = on_presence_fn
+        # Aggregate "is any baby camera reporting baby in the crib right
+        # now?" — invoked after each worker-poll iteration with a bool.
+        # Wired by the hub to mqtt_publisher.set_baby_in_crib so the
+        # value reaches Home Assistant. The publisher debounces.
+        self.on_baby_in_crib_fn = on_baby_in_crib_fn
         self._stop = threading.Event()
         self._last_snapshot: dict[str, float] = {}
         # Queued clip extractions: list of (extract_at, cam_id, snap_id,
@@ -451,6 +457,10 @@ class StateRecorderThread(threading.Thread):
                 self._drain_pending_clips(now)
             except Exception:
                 pass
+            # Aggregate baby_in_crib state across all BABY cameras for
+            # the MQTT publisher. Any baby camera reporting persons>0
+            # → in crib. Reset every iteration.
+            any_baby_in_crib = False
             try:
                 workers = self.get_workers_fn() or {}
                 for cam_id, w in workers.items():
@@ -464,6 +474,15 @@ class StateRecorderThread(threading.Thread):
                     cam_cfg = (
                         self.get_camera_fn(cam_id) if self.get_camera_fn else None
                     ) or {}
+                    # Update the in-crib aggregate for baby cameras
+                    # regardless of save_history (the MQTT signal isn't
+                    # tied to the history-recording opt-in).
+                    is_baby_cam = (
+                        (cam_cfg.get("type") or s.get("camera_type") or "") == "baby"
+                        and cam_cfg.get("enabled", True)
+                    )
+                    if is_baby_cam and int(s.get("person_count", 0) or 0) > 0:
+                        any_baby_in_crib = True
                     # Per-camera opt-in. Fallback to legacy behaviour (baby cameras)
                     # when the flag isn't present yet.
                     save_history = cam_cfg.get(
@@ -527,4 +546,12 @@ class StateRecorderThread(threading.Thread):
                         )
             except Exception:
                 pass
+            # Push the aggregate baby-in-crib state. The publisher
+            # debounces (only fires on transitions) and silently no-ops
+            # when MQTT is disabled / disconnected.
+            if self.on_baby_in_crib_fn is not None:
+                try:
+                    self.on_baby_in_crib_fn(bool(any_baby_in_crib))
+                except Exception:
+                    pass
             self._stop.wait(POLL_INTERVAL_S)

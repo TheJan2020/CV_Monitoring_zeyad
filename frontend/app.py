@@ -147,6 +147,45 @@ def training_page():
     )
 
 
+@app.route("/settings")
+def settings_page():
+    return render_template(
+        "settings.html",
+        user=session["user"],
+        active="settings",
+    )
+
+
+@app.route("/api/settings")
+def api_settings_get_proxy():
+    status, body = hub_client.get_settings()
+    if 200 <= status < 300:
+        return jsonify(body)
+    return jsonify({"error": (body or {}).get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_settings_post_proxy():
+    body = request.get_json(silent=True) or {}
+    status, resp = hub_client.post_settings(body)
+    if 200 <= status < 300:
+        return jsonify(resp)
+    return jsonify({"error": (resp or {}).get("error") or f"hub status {status}"}), status or 502
+
+
+@app.route("/api/settings/mqtt/test", methods=["POST"])
+def api_settings_mqtt_test_proxy():
+    body = request.get_json(silent=True) or {}
+    status, resp = hub_client.test_mqtt(body)
+    return jsonify(resp), (200 if 200 <= status < 300 else status or 502)
+
+
+@app.route("/api/settings/mqtt/status")
+def api_settings_mqtt_status_proxy():
+    status, resp = hub_client.mqtt_status()
+    return jsonify(resp), (200 if 200 <= status < 300 else status or 502)
+
+
 @app.route("/api/training")
 def api_training_status():
     status, body = hub_client.training_status()

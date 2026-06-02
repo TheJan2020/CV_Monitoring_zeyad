@@ -15,3 +15,7 @@ flask>=3.0.0
 # Step 4 — audio capture from RTSP (baby-monitor mode)
 # Bundles a ready-to-use ffmpeg binary so we don't need a separate system install.
 imageio-ffmpeg>=0.5.1
+
+# Step 5 — MQTT publishing for Home Assistant integration (baby_in_crib).
+# Supports both TCP and WebSocket transports out of the box.
+paho-mqtt>=2.0.0

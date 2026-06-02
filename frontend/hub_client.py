@@ -129,6 +129,26 @@ def training_status() -> tuple[int, dict]:
     return res["_status"], res["_body"] or {}
 
 
+def get_settings() -> tuple[int, dict]:
+    res = _request("GET", "/api/settings", timeout=4.0)
+    return res["_status"], res["_body"] or {}
+
+
+def post_settings(body: dict) -> tuple[int, dict]:
+    res = _request("POST", "/api/settings", body=body, timeout=6.0)
+    return res["_status"], res["_body"] or {}
+
+
+def test_mqtt(body: dict) -> tuple[int, dict]:
+    res = _request("POST", "/api/settings/mqtt/test", body=body, timeout=10.0)
+    return res["_status"], res["_body"] or {}
+
+
+def mqtt_status() -> tuple[int, dict]:
+    res = _request("GET", "/api/settings/mqtt/status", timeout=4.0)
+    return res["_status"], res["_body"] or {}
+
+
 # Helper that returns the raw bytes from the hub's snapshot file endpoint.
 def fetch_snapshot_bytes(path_under_cam: str) -> bytes | None:
     import urllib.request as _ur
