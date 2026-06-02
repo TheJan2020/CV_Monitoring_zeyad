@@ -301,6 +301,9 @@ def camera_detail(cam_id):
             "port": cam.get("port"),
             "enabled": cam.get("enabled", True),
             "audio_enabled": bool(cam.get("audio_enabled", cam_type == "baby")),
+            # Capture cadence — used by the live-view snapshot-cycle box
+            # to size the countdown / meters between snapshot saves.
+            "capture_interval_s": int(cam.get("capture_interval_s") or 30),
         },
     )
 

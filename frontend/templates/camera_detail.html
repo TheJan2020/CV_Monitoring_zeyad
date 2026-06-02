@@ -54,6 +54,57 @@
   </aside>
 </div>
 
+<!-- Snapshot-cycle window: tracks detection second-by-second between
+     snapshot saves, and at the end of the interval shows which side
+     of the bed-state vote the next saved snapshot will land on. -->
+<section class="cd-cycle">
+  <div class="cd-cycle-head">
+    <h3>Snapshot cycle window</h3>
+    <span class="muted">
+      saves every <strong>{{ camera.capture_interval_s }} s</strong> · counting per-second detection vs no-detection between saves
+    </span>
+  </div>
+
+  <div class="cd-cycle-grid">
+    <div class="cd-cycle-countdown">
+      <div class="cd-cycle-label">Time in this window</div>
+      <div class="cd-cycle-clock">
+        <span id="cd-cyc-elapsed">0</span>
+        <span class="cd-cycle-slash">/</span>
+        <span>{{ camera.capture_interval_s }}</span>
+        <span class="cd-cycle-unit">s</span>
+      </div>
+      <div class="cd-cycle-progress">
+        <div class="cd-cycle-progress-fill" id="cd-cyc-fill" style="width:0%"></div>
+      </div>
+      <div class="cd-cycle-sub muted" id="cd-cyc-eta">next snapshot in —</div>
+    </div>
+
+    <div class="cd-meter cd-meter-in cd-cyc-meter" id="cd-cyc-in-meter">
+      <div class="cd-meter-head">
+        <span class="cd-meter-title">Detected — baby in crib</span>
+        <span class="cd-meter-pct" id="cd-cyc-in-pct">—</span>
+      </div>
+      <div class="cd-meter-bar"><div class="cd-meter-fill cd-meter-fill-in" id="cd-cyc-in-fill" style="width:0%"></div></div>
+      <div class="cd-meter-sub muted"><span id="cd-cyc-in-secs">0</span> s detected</div>
+    </div>
+
+    <div class="cd-meter cd-meter-out cd-cyc-meter" id="cd-cyc-out-meter">
+      <div class="cd-meter-head">
+        <span class="cd-meter-title">Not detected — out of frame</span>
+        <span class="cd-meter-pct" id="cd-cyc-out-pct">—</span>
+      </div>
+      <div class="cd-meter-bar"><div class="cd-meter-fill cd-meter-fill-out" id="cd-cyc-out-fill" style="width:0%"></div></div>
+      <div class="cd-meter-sub muted"><span id="cd-cyc-out-secs">0</span> s not detected</div>
+    </div>
+  </div>
+
+  <div class="cd-cycle-verdict" id="cd-cyc-verdict">
+    <span class="cd-cycle-verdict-label">Current verdict</span>
+    <span class="cd-cycle-verdict-value" id="cd-cyc-verdict-val">collecting…</span>
+  </div>
+</section>
+
 <!-- Today's running counters & meters -->
 <section class="cd-today">
   <div class="cd-today-head">
@@ -251,5 +302,170 @@ function runningHours(snaps) {
 
 pollToday();
 setInterval(pollToday, 10000);  // every 10 s — cheap, reads from cache
+
+// ---- snapshot-cycle window -----------------------------------------
+//
+// Between saves the page accumulates per-second detection vs no-
+// detection from the live worker /state poll, and at the end of the
+// interval freezes the verdict + the meter widths so you can see
+// which side won when the snapshot was saved. Each new snapshot in
+// /api/history resets the window.
+
+const CAPTURE_INTERVAL_S = {{ camera.capture_interval_s }};
+
+const cyc = {
+  inSecs: 0,
+  outSecs: 0,
+  windowStartT: null,   // wall-clock seconds when the current window began
+  lastTickMs: null,     // last animation-frame tick (ms)
+  frozen: false,        // true once the verdict locked in for this window
+  lastKnownSnapId: null,
+};
+
+function _cycEl(id) { return document.getElementById(id); }
+
+async function cycSyncFromHistory() {
+  // Find the most recent snapshot for THIS camera today; use its
+  // captured_at as our windowStartT so the local timer aligns with
+  // the actual save cadence on the server.
+  try {
+    const r = await fetch(
+      "/api/history/" + camId + "?date=" + todayISO(),
+      { cache: "no-store" },
+    );
+    if (!r.ok) return;
+    const data = await r.json();
+    const snaps = data.snapshots || [];
+    if (snaps.length === 0) {
+      if (cyc.windowStartT === null) {
+        cyc.windowStartT = Date.now() / 1000;
+      }
+      return;
+    }
+    const latest = snaps[snaps.length - 1];
+    if (cyc.lastKnownSnapId !== latest.id) {
+      cyc.lastKnownSnapId = latest.id;
+      cyc.windowStartT = latest.captured_at;
+      cyc.inSecs = 0;
+      cyc.outSecs = 0;
+      cyc.frozen = false;
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function cycRender(act) {
+  // Accumulate one second into the appropriate bucket (called by the
+  // 1 s tick loop). Skip if frozen — we wait for the next snapshot
+  // to land before resetting.
+  if (cyc.windowStartT === null) {
+    _cycEl("cd-cyc-eta").textContent = "syncing…";
+    return;
+  }
+  const now = Date.now() / 1000;
+  const elapsed = Math.max(0, Math.floor(now - cyc.windowStartT));
+  const remaining = Math.max(0, CAPTURE_INTERVAL_S - elapsed);
+
+  if (!cyc.frozen) {
+    // Bucket-of-truth: we only track the COMPLETED tick, so on the
+    // first call we just record windowStartT.
+    if (cyc.lastTickMs !== null) {
+      const dtMs = Date.now() - cyc.lastTickMs;
+      if (dtMs >= 800 && dtMs < 5000) {
+        if (act && act !== "out_of_frame") cyc.inSecs += 1;
+        else cyc.outSecs += 1;
+      }
+    }
+    cyc.lastTickMs = Date.now();
+  }
+
+  // Bar widths use the live counts during the window, then freeze.
+  const totalCounted = cyc.inSecs + cyc.outSecs;
+  const inPct  = totalCounted > 0 ? (cyc.inSecs  / totalCounted) * 100 : 0;
+  const outPct = totalCounted > 0 ? (cyc.outSecs / totalCounted) * 100 : 0;
+  _cycEl("cd-cyc-elapsed").textContent = elapsed;
+  _cycEl("cd-cyc-fill").style.width = Math.min(100, (elapsed / CAPTURE_INTERVAL_S) * 100).toFixed(1) + "%";
+  _cycEl("cd-cyc-in-secs").textContent = cyc.inSecs;
+  _cycEl("cd-cyc-out-secs").textContent = cyc.outSecs;
+  _cycEl("cd-cyc-in-pct").textContent  = totalCounted > 0 ? inPct.toFixed(0) + "%" : "—";
+  _cycEl("cd-cyc-out-pct").textContent = totalCounted > 0 ? outPct.toFixed(0) + "%" : "—";
+  _cycEl("cd-cyc-in-fill").style.width  = inPct.toFixed(1) + "%";
+  _cycEl("cd-cyc-out-fill").style.width = outPct.toFixed(1) + "%";
+
+  _cycEl("cd-cyc-eta").textContent =
+    remaining > 0 ? `next snapshot in ${remaining} s`
+                  : `waiting for snapshot save…`;
+
+  // Verdict
+  const verdict = _cycEl("cd-cyc-verdict");
+  const verdictVal = _cycEl("cd-cyc-verdict-val");
+  if (totalCounted < 3) {
+    verdictVal.textContent = "collecting…";
+    verdict.className = "cd-cycle-verdict";
+  } else if (cyc.inSecs > cyc.outSecs) {
+    verdictVal.textContent = remaining > 0
+      ? `LEANING IN BED (${Math.round(inPct)}% so far)`
+      : `IN BED — next snapshot will be saved as in-bed`;
+    verdict.className = "cd-cycle-verdict verdict-in";
+  } else if (cyc.outSecs > cyc.inSecs) {
+    verdictVal.textContent = remaining > 0
+      ? `LEANING OUT OF BED (${Math.round(outPct)}% so far)`
+      : `OUT OF BED — next snapshot will be saved as out-of-frame`;
+    verdict.className = "cd-cycle-verdict verdict-out";
+  } else {
+    verdictVal.textContent = "TIE — pending more samples";
+    verdict.className = "cd-cycle-verdict";
+  }
+
+  // Freeze once the window is up; wait for the snapshot to land
+  // (cycSyncFromHistory advances the window) before counting again.
+  if (remaining === 0) cyc.frozen = true;
+}
+
+// Tick loop: drive the cycle box every second using whatever activity
+// the most recent /state poll returned.
+let _lastSeenActivity = "out_of_frame";
+const origPoll = poll;
+poll = async function() {
+  try {
+    const r = await fetch("/api/cameras/" + camId + "/state", {cache:"no-store"});
+    if (!r.ok) return;
+    const s = await r.json();
+    _lastSeenActivity = s.activity || "out_of_frame";
+
+    const act = _lastSeenActivity;
+    const actEl = document.getElementById("activity");
+    actEl.className = "cd-activity act-" + act;
+    actEl.textContent = ACTIVITY_LABEL[act] || act.replace(/_/g, " ");
+
+    let sub = "";
+    if (act === "asleep") sub = `lying still for ${fmtSec(s.still_seconds)}`;
+    else if (act === "lying") sub = "lying down — needs more stillness for asleep";
+    else if (act === "sitting") sub = "upright, calm";
+    else if (act === "moving_a_lot") sub = "high motion or upright movement";
+    else if (act === "out_of_frame") sub = "no detection";
+    document.getElementById("activity-sub").textContent = sub;
+
+    const noSubject = act === "out_of_frame";
+    document.getElementById("posture").textContent = noSubject ? "—" : (s.posture || "—");
+    document.getElementById("motion").textContent  = noSubject ? "—" : (s.motion  || "—");
+    document.getElementById("persons").textContent = s.person_count ?? 0;
+    document.getElementById("fps").textContent = (s.fps || 0).toFixed(1);
+    document.getElementById("still").textContent = fmtSec(s.still_seconds);
+    const lockAge = s.baby_lock?.age_s;
+    document.getElementById("lockage").textContent =
+      lockAge != null ? fmtSec(lockAge) : "—";
+
+    document.getElementById("stream-overlay").style.display = "none";
+  } catch (e) { /* ignore */ }
+};
+
+// 1 s tick for the cycle box — uses whatever activity the 800 ms poll
+// last cached. Separate from the main /state poll so we never double-
+// count when the network is slow.
+setInterval(() => cycRender(_lastSeenActivity), 1000);
+// Sync window-start from server every 5 s so a new snapshot save
+// resets the counters cleanly without waiting on the next minute mark.
+cycSyncFromHistory();
+setInterval(cycSyncFromHistory, 5000);
 </script>
 {% endblock %}
