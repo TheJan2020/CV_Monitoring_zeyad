@@ -69,8 +69,18 @@ const elAccuracyDetail = document.getElementById("sum-accuracy-detail");
 const periodsDiv = document.getElementById("sum-periods");
 const periodsCount = document.getElementById("sum-periods-count");
 
+// Format a Date as YYYY-MM-DD in the BROWSER's local timezone.
+// toISOString() always returns UTC and silently rolls the date back in
+// +03 / +0X timezones between local midnight and 00:00 UTC.
+function ymdLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 let currentCam = null;
-let currentDate = new Date().toISOString().slice(0, 10);
+let currentDate = ymdLocal();
 // Latest history payload — periods read snapshots from here so we
 // don't re-fetch when a row is expanded.
 let _snapshots = [];
@@ -137,7 +147,7 @@ dateInput.addEventListener("change", () => {
 document.getElementById("sum-btn-prev").addEventListener("click", () => shiftDate(-1));
 document.getElementById("sum-btn-next").addEventListener("click", () => shiftDate(1));
 document.getElementById("sum-btn-today").addEventListener("click", () => {
-  currentDate = new Date().toISOString().slice(0, 10);
+  currentDate = ymdLocal();
   dateInput.value = currentDate;
   reload();
 });
@@ -145,7 +155,7 @@ document.getElementById("sum-btn-today").addEventListener("click", () => {
 function shiftDate(deltaDays) {
   const d = new Date(currentDate + "T12:00:00");
   d.setDate(d.getDate() + deltaDays);
-  currentDate = d.toISOString().slice(0, 10);
+  currentDate = ymdLocal(d);
   dateInput.value = currentDate;
   reload();
 }
@@ -204,7 +214,7 @@ async function loadOverview() {
   for (let i = 0; i < OVERVIEW_DAYS; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    dates.push(d.toISOString().slice(0, 10));
+    dates.push(ymdLocal(d));
   }
 
   // Fetch in parallel; tolerate per-day failures (e.g. older days

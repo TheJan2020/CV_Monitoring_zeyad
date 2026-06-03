@@ -29,8 +29,18 @@ const snapGrid   = document.getElementById("snap-grid");
 const snapCount  = document.getElementById("snap-count");
 const hoursDiv   = document.getElementById("hist-hours");
 
+// Format a Date as YYYY-MM-DD in the BROWSER's local timezone.
+// Using toISOString() would convert to UTC and silently roll the date
+// back near midnight in +03 / +0X timezones.
+function ymdLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 let currentCam  = null;
-let currentDate = new Date().toISOString().slice(0, 10);
+let currentDate = ymdLocal();
 let _currentData = null;            // last /api/history payload
 let _view = null;                   // {startTs, endTs} — shared zoom across tracks
 const MIN_VIEW_SPAN = 60;           // 1 minute floor
@@ -70,14 +80,14 @@ dateInput.addEventListener("change", () => {
 function shiftDay(days) {
   const d = new Date(currentDate + "T00:00:00");
   d.setDate(d.getDate() + days);
-  currentDate = d.toISOString().slice(0, 10);
+  currentDate = ymdLocal(d);
   dateInput.value = currentDate;
   loadHistory();
 }
 document.getElementById("btn-prev").addEventListener("click", () => shiftDay(-1));
 document.getElementById("btn-next").addEventListener("click", () => shiftDay(1));
 document.getElementById("btn-today").addEventListener("click", () => {
-  currentDate = new Date().toISOString().slice(0, 10);
+  currentDate = ymdLocal();
   dateInput.value = currentDate;
   loadHistory();
 });
@@ -250,7 +260,7 @@ function renderBar(track, segments) {
     bar.appendChild(el);
   }
   // "now" marker on today, only if it falls inside the current view
-  const today = new Date().toISOString().slice(0, 10);
+  const today = ymdLocal();
   if (currentDate === today) {
     const now = Date.now() / 1000;
     if (now >= _view.startTs && now <= _view.endTs) {
@@ -970,6 +980,6 @@ function escapeHtml(s) {
 loadCameras();
 // Auto-refresh "today" view every 15 s
 setInterval(() => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = ymdLocal();
   if (currentDate === today && currentCam) loadHistory();
 }, 15000);
