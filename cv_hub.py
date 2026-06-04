@@ -2470,6 +2470,64 @@ def api_classes_load_label(cid, img_id):
     return jsonify({"boxes": cc.load_label(cid, img_id)})
 
 
+@app.route("/api/custom-classes/<cid>/train", methods=["POST"])
+def api_classes_start_training(cid):
+    import custom_classes as cc
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(cc.start_training(
+            cid,
+            epochs=int(body.get("epochs", 50)),
+            imgsz=int(body.get("imgsz", 640)),
+            batch=int(body.get("batch", 8)),
+        ))
+    except (ValueError, FileNotFoundError) as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/custom-classes/<cid>/train/status", methods=["GET"])
+def api_classes_training_status(cid):
+    import custom_classes as cc
+    return jsonify(cc.training_state(cid))
+
+
+@app.route("/api/custom-classes/<cid>/predict/<img_id>", methods=["GET"])
+def api_classes_predict(cid, img_id):
+    """Run the class's trained model on one stored image and return its
+    predicted bboxes. Used by the labeler to pre-fill suggestions on
+    unlabeled images once a model is ready."""
+    import custom_classes as cc
+    from pathlib import Path
+    model_path = Path(__file__).resolve().parent / "custom_classes" / cid / "model" / "best.pt"
+    if not model_path.exists():
+        return jsonify({"error": "no trained model"}), 404
+    img_path = cc.image_path(cid, img_id)
+    if img_path is None:
+        return jsonify({"error": "image not found"}), 404
+    try:
+        from ultralytics import YOLO
+        from PIL import Image
+        img = Image.open(img_path).convert("RGB")
+        W, H = img.size
+        model = YOLO(str(model_path))
+        results = model.predict(source=img, conf=0.25, imgsz=640, verbose=False, device=0)
+        out = []
+        if results:
+            r = results[0]
+            for box in r.boxes:
+                xyxy = box.xyxy[0].tolist()
+                conf = float(box.conf[0]) if box.conf is not None else 0.0
+                x1, y1, x2, y2 = xyxy
+                cx = (x1 + x2) / 2.0 / W
+                cy = (y1 + y2) / 2.0 / H
+                w  = (x2 - x1) / W
+                h  = (y2 - y1) / H
+                out.append({"cx": cx, "cy": cy, "w": w, "h": h, "confidence": conf})
+        return jsonify({"boxes": out, "image_width": W, "image_height": H})
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+
 @app.route("/healthz")
 def healthz():
     body = {

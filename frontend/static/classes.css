@@ -302,3 +302,54 @@
   margin-top: 10px;
 }
 #cl-save-status { margin-left: auto; }
+
+/* ----- training card ----- */
+.cw-train-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 14px 0 18px 0;
+}
+.cw-train-title {
+  margin: 0 0 8px 0;
+  font-size: 13.5px;
+}
+.cw-train-bar {
+  height: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cw-train-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0bb0ba, #6342dd);
+  width: 0%;
+  transition: width 0.25s ease-out;
+}
+.cw-train-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cw-train-log-wrap summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+.cw-train-log {
+  background: #000;
+  color: #ccc;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 10px;
+  margin-top: 6px;
+  border-radius: 4px;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

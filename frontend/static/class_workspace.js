@@ -10,6 +10,14 @@ const fileInput = document.getElementById("cw-file");
 const btnBrowse = document.getElementById("cw-browse");
 const btnDelete = document.getElementById("cw-delete");
 const btnLabel  = document.getElementById("cw-label");
+const btnTrain  = document.getElementById("cw-train");
+const trainCard   = document.getElementById("cw-train-card");
+const trainTitle  = document.getElementById("cw-train-title");
+const trainBar    = document.getElementById("cw-train-bar-fill");
+const trainMeta   = document.getElementById("cw-train-meta");
+const trainLog    = document.getElementById("cw-train-log");
+const MIN_LABELED_TO_TRAIN = 30;
+let trainPollHandle = null;
 const uploadStatus = document.getElementById("cw-upload-status");
 const gridCount = document.getElementById("cw-grid-count");
 
@@ -30,7 +38,20 @@ async function loadMeta() {
   }
   titleEl.textContent = me.name;
   document.title = `${me.name} — PrimeAnalyze`;
-  stats.textContent = `${me.image_count} image${me.image_count === 1 ? "" : "s"} · ${me.labeled_count} labeled`;
+  stats.textContent =
+    `${me.image_count} image${me.image_count === 1 ? "" : "s"} · ${me.labeled_count} labeled`
+    + (me.model_ready ? " · model ready" : "");
+  // Enable Train when there's enough labeled data. The action label
+  // flips between Train / Re-train depending on whether a model is
+  // already on disk.
+  if (btnTrain) {
+    const ok = me.labeled_count >= MIN_LABELED_TO_TRAIN;
+    btnTrain.disabled = !ok;
+    btnTrain.title = ok
+      ? "Spawn a fine-tune job on the RTX 5000"
+      : `Need at least ${MIN_LABELED_TO_TRAIN} labeled images (have ${me.labeled_count})`;
+    btnTrain.textContent = me.model_ready ? "Re-train" : "Train on GPU";
+  }
   return me;
 }
 
@@ -237,5 +258,91 @@ btnDelete.addEventListener("click", async () => {
   if (r.ok) location.href = "/classes";
   else alert("Delete failed");
 });
+
+// ---- training --------------------------------------------------------
+
+async function pollTraining() {
+  try {
+    const r = await fetch(`/api/custom-classes/${encodeURIComponent(CID)}/train/status`,
+      { cache: "no-store" });
+    if (!r.ok) return;
+    const s = await r.json();
+    if (!s.running && !s.return_code && !s.epochs_done) {
+      // No training started this session; hide the card.
+      trainCard.hidden = true;
+      return;
+    }
+    trainCard.hidden = false;
+    const done = s.epochs_done || 0;
+    const total = s.epochs_total || 0;
+    const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    trainBar.style.width = `${pct}%`;
+    if (s.running) {
+      const m = s.last_metrics || {};
+      const loss = m["train/box_loss"] || m.box_loss || "";
+      const map  = m["metrics/mAP50(B)"] || m["metrics/mAP50"] || "";
+      const elapsed = s.started_at ? Math.round(Date.now() / 1000 - s.started_at) : 0;
+      const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+      trainTitle.textContent = `Training — epoch ${done} / ${total}`;
+      trainMeta.textContent =
+        `${pct}% · ${mins}m ${secs}s elapsed`
+        + (loss ? ` · box loss ${(+loss).toFixed(4)}` : "")
+        + (map ? ` · mAP@.5 ${(+map).toFixed(3)}` : "");
+    } else if (s.return_code === 0) {
+      trainTitle.textContent = "Training complete";
+      trainMeta.textContent = `${done} / ${total} epochs · model saved to custom_classes/${CID}/model/best.pt`;
+      trainBar.style.width = "100%";
+      stopTrainPolling();
+      refresh();
+    } else if (s.return_code != null) {
+      trainTitle.textContent = `Training failed (exit ${s.return_code})`;
+      trainMeta.textContent = "Check the log below.";
+      stopTrainPolling();
+    }
+    if (s.log_tail) trainLog.textContent = s.log_tail.join("\n");
+  } catch (e) {
+    // network blip — keep polling
+  }
+}
+
+function startTrainPolling() {
+  if (trainPollHandle) return;
+  pollTraining();
+  trainPollHandle = setInterval(pollTraining, 4000);
+}
+function stopTrainPolling() {
+  if (trainPollHandle) clearInterval(trainPollHandle);
+  trainPollHandle = null;
+}
+
+if (btnTrain) {
+  btnTrain.addEventListener("click", async () => {
+    if (!confirm(
+      "Spawn a YOLO11s fine-tune on the GPU? Roughly 15-45 minutes "
+      + "depending on dataset size. The live cameras keep running."
+    )) return;
+    btnTrain.disabled = true;
+    const r = await fetch(`/api/custom-classes/${encodeURIComponent(CID)}/train`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ epochs: 50, imgsz: 640, batch: 8 }) });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      alert("Training failed to start: " + (err.error || r.status));
+      btnTrain.disabled = false;
+      return;
+    }
+    trainCard.hidden = false;
+    trainTitle.textContent = "Training queued…";
+    trainMeta.textContent = "Loading YOLO11s base weights…";
+    trainBar.style.width = "1%";
+    startTrainPolling();
+  });
+}
+
+// On page load, pick up an in-progress training (e.g. user refreshed
+// during a long run).
+fetch(`/api/custom-classes/${encodeURIComponent(CID)}/train/status`, { cache: "no-store" })
+  .then((r) => r.ok ? r.json() : null)
+  .then((s) => { if (s && s.running) startTrainPolling(); });
 
 refresh();

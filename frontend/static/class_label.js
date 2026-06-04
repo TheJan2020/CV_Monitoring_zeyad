@@ -23,6 +23,7 @@ const btnClear = document.getElementById("cl-clear");
 const btnSave  = document.getElementById("cl-save");
 
 let className = "";
+let modelReady = false;
 let images = [];            // [{id, labeled, box_count, ...}, ...]
 let cursor = -1;            // index into images
 let curImgNatural = { w: 0, h: 0 };
@@ -53,6 +54,7 @@ async function loadClassMeta() {
     return false;
   }
   className = me.name;
+  modelReady = !!me.model_ready;
   titleEl.textContent = `Labeling: ${me.name}`;
   classNameEl.textContent = me.name;
   document.title = `Label ${me.name} — PrimeAnalyze`;
@@ -97,6 +99,34 @@ async function loadCurrent() {
   if (r.ok) {
     const data = await r.json();
     boxes = (data.boxes || []).map(([cx, cy, w, h]) => ({ cx, cy, w, h }));
+  }
+  // Auto-label: if the class has a trained model and this image is
+  // currently unlabeled, fetch the model's suggestions and pre-fill
+  // them as a starting point. The user accepts (just save) or edits
+  // before saving. We don't run inference on already-labeled images —
+  // the human labels are ground truth, no point re-predicting them.
+  if (modelReady && !cur.labeled && boxes.length === 0) {
+    saveStatus.textContent = "Running model prediction…";
+    try {
+      const pr = await fetch(
+        `/api/custom-classes/${encodeURIComponent(CID)}/predict/${cur.id}`,
+        { cache: "no-store" });
+      if (pr.ok) {
+        const data = await pr.json();
+        const suggested = (data.boxes || [])
+          .filter((b) => b.confidence >= 0.25)
+          .map((b) => ({ cx: b.cx, cy: b.cy, w: b.w, h: b.h, _suggested: true }));
+        if (suggested.length) {
+          boxes = suggested;
+          dirty = true;   // saving these confirms them
+          saveStatus.textContent = `Model suggested ${suggested.length} box${suggested.length === 1 ? "" : "es"}. Adjust and Save.`;
+        } else {
+          saveStatus.textContent = "Model found nothing — draw a box.";
+        }
+      }
+    } catch (e) {
+      saveStatus.textContent = "Prediction failed; draw manually.";
+    }
   }
 
   // Display image. We render the canvas only once we know its natural
@@ -180,10 +210,13 @@ function redraw() {
     const px = normToPx(boxes[i]);
     boxes[i]._px = px;
     const sel = i === selectedIdx;
+    const sug = boxes[i]._suggested;
     ctx.lineWidth = 3;
     ctx.strokeStyle = sel ? BOX_COLOR_SELECTED : BOX_COLOR_NORMAL;
+    if (sug) ctx.setLineDash([8, 4]);
     ctx.strokeRect(px.x, px.y, px.w, px.h);
-    const badge = `${className} #${i + 1}`;
+    if (sug) ctx.setLineDash([]);
+    const badge = `${className} #${i + 1}${sug ? " (suggested)" : ""}`;
     ctx.font = "13px ui-monospace, monospace";
     const tw = ctx.measureText(badge).width + 10;
     ctx.fillStyle = sel ? BOX_COLOR_SELECTED : BOX_COLOR_NORMAL;
@@ -336,6 +369,7 @@ canvas.addEventListener("mousemove", (e) => {
     const halfH = s.h / 2;
     b.cx = Math.max(halfW, Math.min(1 - halfW, s.cx + dx));
     b.cy = Math.max(halfH, Math.min(1 - halfH, s.cy + dy));
+    delete b._suggested;
     dirty = true;
     redraw();
     return;
@@ -356,6 +390,7 @@ canvas.addEventListener("mousemove", (e) => {
     b.cy = (top + bottom) / 2;
     b.w  = right - left;
     b.h  = bottom - top;
+    delete b._suggested;
     dirty = true;
     redraw();
     return;
