@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Label — PrimeAnalyze{% endblock %}
+{% block page_title %}<span id="cl-title">Labeling</span>{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='classes.css') }}">
+
+<section class="hist-section" data-class-id="{{ class_id }}">
+  <div class="cl-toolbar">
+    <a href="/classes/{{ class_id }}" class="btn btn-secondary">← Back to class</a>
+    <span class="cl-progress muted" id="cl-progress">— / —</span>
+    <button class="btn btn-secondary" id="cl-prev" title="Previous image (←)">‹ Prev</button>
+    <button class="btn btn-secondary" id="cl-next" title="Next image (→)">Next ›</button>
+    <button class="btn" id="cl-next-unlabeled" title="Next image that still needs labeling">Next unlabeled</button>
+    <span class="cl-spacer"></span>
+    <button class="btn btn-secondary" id="cl-clear" title="Remove all boxes from this image">Clear all</button>
+    <button class="btn" id="cl-save" title="Save and advance to next (Enter)">Save &amp; next</button>
+  </div>
+
+  <p class="muted cl-help">
+    Click and drag on the image to draw a box around the
+    <strong id="cl-class-name">object</strong>. Multiple boxes per image
+    are fine — draw one for each occurrence. Click a box to select it,
+    then press <kbd>Delete</kbd> to remove it.
+    <br>
+    <strong>Keys:</strong> <kbd>←</kbd>/<kbd>→</kbd> previous/next, <kbd>U</kbd> next unlabeled,
+    <kbd>Enter</kbd> save&amp;next, <kbd>Delete</kbd> remove selected, <kbd>Esc</kbd> cancel drag.
+  </p>
+
+  <div class="cl-stage" id="cl-stage">
+    <img id="cl-img" alt="">
+    <canvas id="cl-canvas"></canvas>
+  </div>
+
+  <div class="cl-meta" id="cl-meta">
+    <span id="cl-box-count">0 boxes</span>
+    <span id="cl-dims" class="muted"></span>
+    <span id="cl-save-status" class="muted"></span>
+  </div>
+</section>
+
+<script>
+  window.__CLASS_ID  = "{{ class_id }}";
+  window.__START_IMG = "{{ start_img }}";
+</script>
+<script src="{{ url_for('static', filename='class_label.js') }}"></script>
+{% endblock %}

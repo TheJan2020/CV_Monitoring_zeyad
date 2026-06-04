@@ -9,6 +9,7 @@ const drop = document.getElementById("cw-drop");
 const fileInput = document.getElementById("cw-file");
 const btnBrowse = document.getElementById("cw-browse");
 const btnDelete = document.getElementById("cw-delete");
+const btnLabel  = document.getElementById("cw-label");
 const uploadStatus = document.getElementById("cw-upload-status");
 const gridCount = document.getElementById("cw-grid-count");
 
@@ -39,7 +40,9 @@ async function loadImages() {
   gridCount.textContent = imgs.length ? `(${imgs.length})` : "";
   empty.hidden = imgs.length > 0;
   grid.innerHTML = imgs.map((im) => `
-    <div class="cw-thumb" data-id="${im.id}">
+    <a class="cw-thumb" data-id="${im.id}"
+       href="/classes/${encodeURIComponent(CID)}/label?img=${encodeURIComponent(im.id)}"
+       title="Click to label this image">
       <img src="/api/custom-classes/${encodeURIComponent(CID)}/images/${im.id}"
            alt="" loading="lazy">
       <div class="cw-thumb-meta">
@@ -48,14 +51,19 @@ async function loadImages() {
         </span>
         <button class="cw-thumb-del" data-id="${im.id}" title="Delete">✕</button>
       </div>
-    </div>
+    </a>
   `).join("");
   grid.querySelectorAll(".cw-thumb-del").forEach((b) =>
     b.addEventListener("click", (e) => {
+      e.preventDefault();
       e.stopPropagation();
       deleteImage(b.dataset.id);
     })
   );
+}
+
+if (btnLabel) {
+  btnLabel.href = `/classes/${encodeURIComponent(CID)}/label`;
 }
 
 async function deleteImage(imgId) {

@@ -180,6 +180,17 @@ def class_workspace(cid):
     )
 
 
+@app.route("/classes/<cid>/label")
+def class_label(cid):
+    return render_template(
+        "class_label.html",
+        user=session["user"],
+        active="classes",
+        class_id=cid,
+        start_img=request.args.get("img") or "",
+    )
+
+
 @app.route("/api/custom-classes", methods=["GET", "POST"], defaults={"sub": ""})
 @app.route("/api/custom-classes/<path:sub>", methods=["GET", "POST", "PUT", "DELETE"])
 def api_classes_proxy(sub):
