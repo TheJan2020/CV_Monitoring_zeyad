@@ -117,6 +117,26 @@ class BabyTracker:
         stable_lock_grace: float = 60.0,
         stable_lock_window: float = 180.0,
         stable_lock_max_drift: float = 12.0,
+        # Absolute age cap: even a long-sleeping baby gets re-acquired
+        # periodically. Without this, the lock can survive for hours on
+        # whatever subject originally captured it (audit of 03/06–04/06
+        # showed individual locks running 2-11 hours, almost always
+        # tracking an adult or a pillow rather than the baby).
+        max_lock_seconds: float = 1800.0,
+        # Upright postures inside a crib ROI almost certainly belong to an
+        # adult leaning over the crib. A baby that can stand/walk would
+        # be in a playpen, not a monitored crib. Releasing immediately on
+        # these postures stops the lock from drifting onto the adult.
+        upright_postures_release: tuple[str, ...] = (
+            "standing", "walking", "running",
+        ),
+        # Sustained 'moving_a_lot' is the single biggest error signature
+        # in the audit (260 / 366 incorrect snapshots, 75.6% error rate).
+        # Real babies fidget in bursts of a few seconds; an adult moving
+        # around the crib sustains high motion for far longer. After this
+        # many seconds of continuous active motion, release the lock and
+        # require a fresh re-acquisition.
+        sustained_active_seconds: float = 30.0,
     ) -> None:
         self.acquire_frames = max(1, int(acquire_frames))
         self.iou_match = iou_match
@@ -129,6 +149,9 @@ class BabyTracker:
         self.stable_lock_grace = stable_lock_grace
         self.stable_lock_window = stable_lock_window
         self.stable_lock_max_drift = stable_lock_max_drift
+        self.max_lock_seconds = max_lock_seconds
+        self.upright_postures_release = tuple(upright_postures_release)
+        self.sustained_active_seconds = sustained_active_seconds
 
         self.state: LockState = LockState.NONE
         self.lock: LockedBox | None = None
@@ -145,6 +168,10 @@ class BabyTracker:
         self._still_since: float | None = None
         self._still_seconds: float = 0.0
         self._last_t: float = 0.0
+        # Tracks the moment we first entered moving_a_lot within the
+        # current lock — reset when activity flips out of it. Used for
+        # the sustained_active_seconds release rule.
+        self._moving_a_lot_since: float | None = None
 
     # -- internals --------------------------------------------------------
 
@@ -168,6 +195,7 @@ class BabyTracker:
         self._center_history = []
         self._still_since = None
         self._still_seconds = 0.0
+        self._moving_a_lot_since = None
         self.activity = "out_of_frame"
 
     # -- public -----------------------------------------------------------
@@ -313,6 +341,40 @@ class BabyTracker:
 
         # Update activity state (only when LOCKED)
         self._update_activity(posture, motion, t)
+
+        # --------- additional release rules (post-audit 2026-06-04) ---------
+        # The lock can drift onto an adult or a pillow that keeps getting
+        # confidently re-detected; the original release rules (hold gap,
+        # stale max-conf, position drift) miss this case because the new
+        # subject IS moving and IS confidently classified. These rules
+        # catch the specific patterns the audit surfaced.
+        if self.state == LockState.LOCKED and self.lock is not None:
+            # Rule 1 — absolute age cap. Forces a periodic re-acquisition
+            # so a stuck lock can't survive for hours.
+            if (
+                self._lock_started_t is not None
+                and (t - self._lock_started_t) > self.max_lock_seconds
+            ):
+                self._release()
+                return None
+
+            # Rule 2 — upright postures inside a crib ROI are an adult.
+            # Babies that can stand/walk aren't in a monitored crib.
+            if posture in self.upright_postures_release:
+                self._release()
+                return None
+
+            # Rule 3 — sustained moving_a_lot. Babies fidget in short
+            # bursts; long-running active motion is an adult.
+            if self.activity == "moving_a_lot":
+                if self._moving_a_lot_since is None:
+                    self._moving_a_lot_since = t
+                elif (t - self._moving_a_lot_since) > self.sustained_active_seconds:
+                    self._release()
+                    return None
+            else:
+                self._moving_a_lot_since = None
+
         return self.lock
 
     def _update_activity(self, posture: str | None, motion: str | None, t: float) -> None:
