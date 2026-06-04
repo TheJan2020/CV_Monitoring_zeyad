@@ -80,6 +80,7 @@
   justify-content: center;
   z-index: 99;
 }
+.cls-modal[hidden] { display: none; }
 .cls-modal-body {
   background: var(--surface);
   border: 1px solid var(--border);
