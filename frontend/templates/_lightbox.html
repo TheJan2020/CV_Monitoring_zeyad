@@ -1,0 +1,65 @@
+<!-- Shared snapshot lightbox: two images (annotated + raw), optional
+     clip, operator labeling row, and detection parameters panel.
+     Included by both /history and /summary so the popup is visually
+     and behaviorally identical on both pages. -->
+<div id="lightbox" class="lightbox hidden" role="dialog">
+  <div class="lb-backdrop" data-close></div>
+  <button class="lb-close" data-close aria-label="Close">&times;</button>
+
+  <div class="lb-content">
+    <div class="lb-header">
+      <h3 id="lb-caption">—</h3>
+      <div class="lb-tabs" role="tablist">
+        <button class="lb-tab active" type="button" data-tab="images" role="tab">Images</button>
+        <button class="lb-tab" type="button" data-tab="video" role="tab" id="lb-tab-video">Video</button>
+      </div>
+    </div>
+
+    <div class="lb-pane active" data-pane="images">
+      <div class="lb-images">
+        <div class="lb-image-col">
+          <div class="lb-label">Annotated <span class="lb-sub">detection overlay</span></div>
+          <img id="lb-img-annotated" alt="annotated snapshot">
+        </div>
+        <div class="lb-image-col">
+          <div class="lb-label">Original <span class="lb-sub">clean frame</span></div>
+          <img id="lb-img-raw" alt="raw snapshot"
+               onerror="this.style.display='none'; this.parentElement.classList.add('no-raw');">
+          <div class="lb-noraw">Raw frame not available
+            <small>(captured before the worker started saving raw snapshots)</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lb-pane" data-pane="video">
+      <div class="lb-clip-wrap" id="lb-clip-wrap">
+        <div class="lb-label">Clip <span class="lb-sub">±N s of audio/video around the capture</span></div>
+        <video id="lb-clip" controls preload="metadata" playsinline></video>
+        <div class="lb-noclip" id="lb-noclip" style="display:none;">
+          No clip recorded for this snapshot.
+        </div>
+      </div>
+    </div>
+
+    <div class="lb-label-row" id="lb-label-row">
+      <span class="lb-label-prompt">Was the system right?</span>
+      <button type="button" class="lb-label-btn lb-label-correct"
+              data-label="correct">✓ Correct</button>
+      <button type="button" class="lb-label-btn lb-label-incorrect"
+              data-label="incorrect">✗ Incorrect</button>
+      <button type="button" class="lb-label-btn lb-label-clear"
+              data-label="">Clear</button>
+      <span class="lb-label-status" id="lb-label-status"></span>
+    </div>
+    <p class="lb-label-help muted">
+      <strong>Correct</strong> = the system was right about whether the BABY was in the crib
+      (inside the yellow ROI polygon). Adults / siblings walking past the
+      crib don't count — only the baby inside the crib.
+    </p>
+
+    <div class="lb-params" id="lb-params">
+      <div class="muted">No parameters captured.</div>
+    </div>
+  </div>
+</div>

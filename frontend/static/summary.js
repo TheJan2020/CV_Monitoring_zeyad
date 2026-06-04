@@ -814,12 +814,12 @@ function renderPeriodThumbs(period) {
         ? '<span class="sum-thumb-label sum-thumb-label-incorrect" title="You marked incorrect (flips the bed bucket)">✗</span>'
         : "";
     return `
-      <a class="sum-thumb${actCls}${labelCls}" href="${url}" target="_blank" rel="noopener"
+      <div class="sum-thumb${actCls}${labelCls}" data-snap-id="${s.id}" role="button" tabindex="0"
          title="${fmtClock(s.captured_at)}${act ? " · " + act : ""}${s.label ? " · labeled " + s.label : ""}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         ${labelDot}
         <span class="sum-thumb-time">${fmtClock(s.captured_at)}</span>
-      </a>`;
+      </div>`;
   }).join("");
   const truncated = inWin.length > MAX_THUMBS
     ? `<div class="sum-thumbs-note">Showing ${MAX_THUMBS} of ${inWin.length} snapshots (evenly spaced).</div>`
@@ -843,3 +843,213 @@ function fmtDur(seconds) {
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 }
+
+function escapeHtmlSum(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// ====================================================================
+// Lightbox: same UX as History — click a thumbnail to inspect the
+// snapshot and mark it Correct/Incorrect/Clear. Uses the shared
+// _lightbox.html partial so the markup and styling are identical.
+// ====================================================================
+
+const lightbox = document.getElementById("lightbox");
+let _openSnap = null;
+
+function setLightboxTab(name) {
+  document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
+    el.classList.toggle("active", el.dataset.tab === name),
+  );
+  document.querySelectorAll("#lightbox .lb-pane").forEach((el) =>
+    el.classList.toggle("active", el.dataset.pane === name),
+  );
+  if (name !== "video") {
+    const clipEl = document.getElementById("lb-clip");
+    try { if (clipEl) clipEl.pause(); } catch (e) {}
+  }
+}
+
+function renderParamsSum(state) {
+  if (!state || typeof state !== "object") {
+    return '<div class="muted">No parameters captured for this snapshot.</div>';
+  }
+  const rows = [];
+  const push = (label, value) => {
+    if (value === null || value === undefined || value === "") return;
+    rows.push(`
+      <div class="param-row">
+        <span class="param-k">${label}</span>
+        <span class="param-v">${escapeHtmlSum(String(value))}</span>
+      </div>`);
+  };
+  push("Activity",  state.activity);
+  push("Posture",   state.posture);
+  push("Motion",    state.motion);
+  push("Persons",   state.person_count);
+  push("Still for", state.still_seconds != null ? fmtDur(state.still_seconds) : null);
+  push("Motion score", state.motion_score != null ? Number(state.motion_score).toFixed(3) : null);
+  push("Body angle",  state.posture_angle_deg != null ? Math.round(state.posture_angle_deg) + "°" : null);
+  push("FPS",         state.fps != null ? Number(state.fps).toFixed(1) : null);
+  return rows.length ? rows.join("") : '<div class="muted">No parameters captured for this snapshot.</div>';
+}
+
+function openLightbox(snap) {
+  const annotated = `/api/snapshots/${snap.file_rel}`;
+  const raw = annotated.replace(/\.jpg$/, "_raw.jpg");
+  document.getElementById("lb-caption").textContent = fmtClock(snap.captured_at);
+  const rawCol = document.getElementById("lb-img-raw").parentElement;
+  rawCol.classList.remove("no-raw");
+  document.getElementById("lb-img-raw").style.display = "";
+  document.getElementById("lb-img-annotated").src = annotated;
+  document.getElementById("lb-img-raw").src = raw;
+
+  const clipEl   = document.getElementById("lb-clip");
+  const noclip   = document.getElementById("lb-noclip");
+  const tabVideo = document.getElementById("lb-tab-video");
+  if (snap.clip_rel) {
+    clipEl.src = `/api/snapshots/${snap.clip_rel}`;
+    clipEl.load();
+    clipEl.style.display = "";
+    noclip.style.display = "none";
+    tabVideo.disabled = false;
+    tabVideo.classList.remove("disabled");
+  } else {
+    clipEl.removeAttribute("src");
+    clipEl.load();
+    clipEl.style.display = "none";
+    noclip.style.display = "";
+    tabVideo.disabled = false;
+    tabVideo.classList.add("disabled");
+  }
+
+  document.getElementById("lb-params").innerHTML = renderParamsSum(snap.state);
+  _openSnap = snap;
+  syncLabelRowSum(snap.label || null);
+  setLightboxTab("images");
+  lightbox.classList.remove("hidden");
+}
+
+document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
+  el.addEventListener("click", () => setLightboxTab(el.dataset.tab)),
+);
+lightbox.querySelectorAll("[data-close]").forEach((el) =>
+  el.addEventListener("click", () => {
+    lightbox.classList.add("hidden");
+    try { document.getElementById("lb-clip").pause(); } catch (e) {}
+    _openSnap = null;
+  }),
+);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !lightbox.classList.contains("hidden")) {
+    lightbox.classList.add("hidden");
+    try { document.getElementById("lb-clip").pause(); } catch (e) {}
+    _openSnap = null;
+  }
+});
+
+function syncLabelRowSum(label) {
+  document.querySelectorAll("#lb-label-row .lb-label-btn").forEach((b) => {
+    const v = b.dataset.label;
+    const isActive =
+      (label === "correct" && v === "correct") ||
+      (label === "incorrect" && v === "incorrect") ||
+      (!label && v === "");
+    b.classList.toggle("active", isActive);
+  });
+  const status = document.getElementById("lb-label-status");
+  if (label === "correct") {
+    status.textContent = "Marked correct";
+    status.className = "lb-label-status status-correct";
+  } else if (label === "incorrect") {
+    status.textContent = "Marked incorrect (flips the bed bucket)";
+    status.className = "lb-label-status status-incorrect";
+  } else {
+    status.textContent = "Unlabeled — Summary uses the system's own classification";
+    status.className = "lb-label-status status-none";
+  }
+}
+
+async function labelSnapshotSum(value) {
+  if (!_openSnap || _openSnap.id == null) return;
+  const newLabel = value || null;
+  const prev = _openSnap.label || null;
+  if (newLabel === prev) return;
+  // Optimistic update — keep _snapshots in sync so re-renders match.
+  _openSnap.label = newLabel;
+  syncLabelRowSum(newLabel);
+  const inStore = _snapshots.find((s) => s.id === _openSnap.id);
+  if (inStore) inStore.label = newLabel;
+  refreshSumThumb(_openSnap);
+  try {
+    const r = await fetch(`/api/snapshots/${_openSnap.id}/label`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: newLabel }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch (e) {
+    _openSnap.label = prev;
+    if (inStore) inStore.label = prev;
+    syncLabelRowSum(prev);
+    refreshSumThumb(_openSnap);
+    const status = document.getElementById("lb-label-status");
+    status.textContent = "Save failed: " + e.message;
+    status.className = "lb-label-status status-error";
+  }
+}
+
+function refreshSumThumb(snap) {
+  // Every thumbnail node for this snap (the same snap can appear inside
+  // an expanded period and again in another period if the user opened
+  // multiple). Cheap to update both — there are very few of them.
+  const nodes = document.querySelectorAll(`.sum-thumb[data-snap-id="${snap.id}"]`);
+  nodes.forEach((n) => {
+    n.classList.remove("sum-thumb-labeled-correct", "sum-thumb-labeled-incorrect");
+    if (snap.label) n.classList.add(`sum-thumb-labeled-${snap.label}`);
+    let dot = n.querySelector(".sum-thumb-label");
+    if (snap.label) {
+      if (!dot) {
+        dot = document.createElement("span");
+        // Insert before the time span so the dot sits in its usual corner.
+        n.insertBefore(dot, n.querySelector(".sum-thumb-time"));
+      }
+      dot.className = `sum-thumb-label sum-thumb-label-${snap.label}`;
+      dot.textContent = snap.label === "correct" ? "✓" : "✗";
+      dot.title = snap.label === "correct"
+        ? "You marked correct"
+        : "You marked incorrect (flips the bed bucket)";
+    } else if (dot) {
+      dot.remove();
+    }
+  });
+}
+
+document.querySelectorAll("#lb-label-row .lb-label-btn").forEach((b) =>
+  b.addEventListener("click", () => labelSnapshotSum(b.dataset.label)),
+);
+
+// Event delegation on the document — thumbnails are rendered into
+// expandable period rows dynamically, so we can't bind on mount.
+document.addEventListener("click", (e) => {
+  const thumb = e.target.closest(".sum-thumb[data-snap-id]");
+  if (!thumb) return;
+  // Don't fire when the click came from a control inside the thumb.
+  if (e.target.closest("a, button")) return;
+  e.preventDefault();
+  const id = Number(thumb.dataset.snapId);
+  const snap = _snapshots.find((s) => s.id === id);
+  if (snap) openLightbox(snap);
+});
+// Keyboard activation for the role="button" thumbs.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const thumb = e.target.closest && e.target.closest(".sum-thumb[data-snap-id]");
+  if (!thumb || e.target !== thumb) return;
+  e.preventDefault();
+  const id = Number(thumb.dataset.snapId);
+  const snap = _snapshots.find((s) => s.id === id);
+  if (snap) openLightbox(snap);
+});
