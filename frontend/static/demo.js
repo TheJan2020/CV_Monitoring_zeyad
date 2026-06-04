@@ -27,7 +27,26 @@ const CLS_COLOR = {
   cup: "#18a052",
   book: "#d99300",
 };
-function colorFor(cls) { return CLS_COLOR[cls] || "#a472d9"; }
+// Custom-class palette — cycle through high-contrast colours so every
+// trained custom class gets its own, indexed by source (cid).
+const CUSTOM_PALETTE = ["#f5c518", "#ff5d8f", "#21d4fd", "#a4e72b", "#ff8a3c"];
+const _customColorByCid = new Map();
+function colorForCustom(cid) {
+  if (!_customColorByCid.has(cid)) {
+    _customColorByCid.set(
+      cid,
+      CUSTOM_PALETTE[_customColorByCid.size % CUSTOM_PALETTE.length],
+    );
+  }
+  return _customColorByCid.get(cid);
+}
+// A detection carries source=<cid> when it came from a trained custom
+// model; "base" (or missing) means COCO. Give customs their own palette
+// so the user instantly sees "the system found IQOS" vs a person.
+function colorFor(d) {
+  if (d.source && d.source !== "base") return colorForCustom(d.source);
+  return CLS_COLOR[d.class] || "#a472d9";
+}
 
 let stream = null;
 let running = false;
@@ -157,7 +176,7 @@ function draw(data) {
 
   for (const d of data.detections || []) {
     if (d.confidence < minConf) continue;
-    const col = colorFor(d.class);
+    const col = colorFor(d);
     const [x1, y1, x2, y2] = d.box;
     const X1 = x1 * sx, Y1 = y1 * sy, X2 = x2 * sx, Y2 = y2 * sy;
     ctx.strokeStyle = col;
