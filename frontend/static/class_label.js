@@ -32,8 +32,14 @@ let curImgNatural = { w: 0, h: 0 };
 // recompute during drags.
 let boxes = [];             // [{cx, cy, w, h, _px}]
 let selectedIdx = -1;
-let dragging = null;        // {x0, y0, x1, y1} in canvas pixels
+// One unified interaction state across all mouse modes — null when idle.
+//   {type:"new",    x0, y0, x1, y1}
+//   {type:"move",   idx, sBox:{cx,cy,w,h}, sMouseX, sMouseY}
+//   {type:"resize", idx, handle:"nw|ne|sw|se|n|s|e|w",
+//                   sBox:{cx,cy,w,h}, sMouseX, sMouseY}
+let interaction = null;
 let dirty = false;
+const HANDLE_SIZE = 9;      // px — slightly larger than the line width for grabbability
 
 // ---- bootstrap -------------------------------------------------------
 
@@ -142,10 +148,34 @@ function pxToNorm(rect) {
   return { cx, cy, w: rect.w / W, h: rect.h / H };
 }
 
+function handlePositions(px) {
+  // 8 handles: 4 corners + 4 edge midpoints.
+  const cx = px.x + px.w / 2;
+  const cy = px.y + px.h / 2;
+  return {
+    nw: { x: px.x,        y: px.y },
+    n:  { x: cx,           y: px.y },
+    ne: { x: px.x + px.w, y: px.y },
+    e:  { x: px.x + px.w, y: cy },
+    se: { x: px.x + px.w, y: px.y + px.h },
+    s:  { x: cx,           y: px.y + px.h },
+    sw: { x: px.x,        y: px.y + px.h },
+    w:  { x: px.x,        y: cy },
+  };
+}
+
+function drawHandle(p) {
+  const s = HANDLE_SIZE;
+  ctx.fillStyle = BOX_COLOR_SELECTED;
+  ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(p.x - s / 2, p.y - s / 2, s, s);
+}
+
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Existing boxes.
   for (let i = 0; i < boxes.length; i++) {
     const px = normToPx(boxes[i]);
     boxes[i]._px = px;
@@ -153,7 +183,6 @@ function redraw() {
     ctx.lineWidth = 3;
     ctx.strokeStyle = sel ? BOX_COLOR_SELECTED : BOX_COLOR_NORMAL;
     ctx.strokeRect(px.x, px.y, px.w, px.h);
-    // Index badge so the user can tell them apart.
     const badge = `${className} #${i + 1}`;
     ctx.font = "13px ui-monospace, monospace";
     const tw = ctx.measureText(badge).width + 10;
@@ -161,11 +190,15 @@ function redraw() {
     ctx.fillRect(px.x, Math.max(0, px.y - 20), tw, 20);
     ctx.fillStyle = "#fff";
     ctx.fillText(badge, px.x + 5, Math.max(14, px.y - 6));
+    // Draw resize handles on the selected box only.
+    if (sel) {
+      const hs = handlePositions(px);
+      for (const k of Object.keys(hs)) drawHandle(hs[k]);
+    }
   }
 
-  // In-progress drag.
-  if (dragging) {
-    const r = normalizeDrag(dragging);
+  if (interaction && interaction.type === "new") {
+    const r = normalizeDrag(interaction);
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
     ctx.strokeStyle = BOX_COLOR_DRAGGING;
@@ -195,8 +228,8 @@ function evtPoint(e) {
   };
 }
 
-function hitTest(p) {
-  // Top-most match wins (boxes are drawn in order — later index = later draw).
+function hitTestBox(p) {
+  // Top-most box (later index = drawn last) wins.
   for (let i = boxes.length - 1; i >= 0; i--) {
     const px = boxes[i]._px;
     if (!px) continue;
@@ -207,37 +240,140 @@ function hitTest(p) {
   return -1;
 }
 
+function hitTestHandle(p, idx) {
+  // Only the selected box exposes handles.
+  if (idx < 0) return null;
+  const px = boxes[idx]._px;
+  if (!px) return null;
+  const hs = handlePositions(px);
+  const s = HANDLE_SIZE + 2;     // a touch larger than the visual square
+  for (const k of Object.keys(hs)) {
+    const h = hs[k];
+    if (Math.abs(p.x - h.x) <= s / 2 && Math.abs(p.y - h.y) <= s / 2) {
+      return k;
+    }
+  }
+  return null;
+}
+
+function cursorForHandle(k) {
+  return {
+    nw: "nwse-resize", se: "nwse-resize",
+    ne: "nesw-resize", sw: "nesw-resize",
+    n:  "ns-resize",   s:  "ns-resize",
+    e:  "ew-resize",   w:  "ew-resize",
+  }[k] || "default";
+}
+
 canvas.addEventListener("mousedown", (e) => {
   const p = evtPoint(e);
-  const hit = hitTest(p);
+  // 1. Handle on currently-selected box → resize.
+  const handle = hitTestHandle(p, selectedIdx);
+  if (handle) {
+    const b = boxes[selectedIdx];
+    interaction = {
+      type: "resize", idx: selectedIdx, handle,
+      sBox: { cx: b.cx, cy: b.cy, w: b.w, h: b.h },
+      sMouseX: p.x, sMouseY: p.y,
+    };
+    return;
+  }
+  // 2. Inside an existing box → select + start move.
+  const hit = hitTestBox(p);
   if (hit >= 0) {
     selectedIdx = hit;
-    dragging = null;
+    const b = boxes[hit];
+    interaction = {
+      type: "move", idx: hit,
+      sBox: { cx: b.cx, cy: b.cy, w: b.w, h: b.h },
+      sMouseX: p.x, sMouseY: p.y,
+    };
     redraw();
     return;
   }
+  // 3. Empty space → drag to draw a new box.
   selectedIdx = -1;
-  dragging = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+  interaction = { type: "new", x0: p.x, y0: p.y, x1: p.x, y1: p.y };
   redraw();
 });
 
 canvas.addEventListener("mousemove", (e) => {
-  if (!dragging) return;
   const p = evtPoint(e);
-  dragging.x1 = p.x;
-  dragging.y1 = p.y;
-  redraw();
+
+  // Hover affordance: when idle, show resize cursor over handles and
+  // move cursor inside the selected box.
+  if (!interaction) {
+    const handle = hitTestHandle(p, selectedIdx);
+    if (handle) {
+      canvas.style.cursor = cursorForHandle(handle);
+    } else if (selectedIdx >= 0) {
+      const px = boxes[selectedIdx]._px;
+      const inside = px && p.x >= px.x && p.x <= px.x + px.w
+                          && p.y >= px.y && p.y <= px.y + px.h;
+      canvas.style.cursor = inside ? "move" : "crosshair";
+    } else {
+      canvas.style.cursor = "crosshair";
+    }
+    return;
+  }
+
+  if (interaction.type === "new") {
+    interaction.x1 = p.x;
+    interaction.y1 = p.y;
+    redraw();
+    return;
+  }
+
+  const W = canvas.width, H = canvas.height;
+  const dx = (p.x - interaction.sMouseX) / W;
+  const dy = (p.y - interaction.sMouseY) / H;
+  const s = interaction.sBox;
+  const b = boxes[interaction.idx];
+
+  if (interaction.type === "move") {
+    // Clamp the box inside [0, 1] so it never leaves the image area.
+    const halfW = s.w / 2;
+    const halfH = s.h / 2;
+    b.cx = Math.max(halfW, Math.min(1 - halfW, s.cx + dx));
+    b.cy = Math.max(halfH, Math.min(1 - halfH, s.cy + dy));
+    dirty = true;
+    redraw();
+    return;
+  }
+
+  if (interaction.type === "resize") {
+    // Convert center-form to edges, mutate edges per handle, recompute.
+    let left   = s.cx - s.w / 2;
+    let right  = s.cx + s.w / 2;
+    let top    = s.cy - s.h / 2;
+    let bottom = s.cy + s.h / 2;
+    const k = interaction.handle;
+    if (k.includes("w")) left   = Math.max(0, Math.min(right  - 0.01, left   + dx));
+    if (k.includes("e")) right  = Math.min(1, Math.max(left   + 0.01, right  + dx));
+    if (k.includes("n")) top    = Math.max(0, Math.min(bottom - 0.01, top    + dy));
+    if (k.includes("s")) bottom = Math.min(1, Math.max(top    + 0.01, bottom + dy));
+    b.cx = (left + right) / 2;
+    b.cy = (top + bottom) / 2;
+    b.w  = right - left;
+    b.h  = bottom - top;
+    dirty = true;
+    redraw();
+    return;
+  }
 });
 
 window.addEventListener("mouseup", () => {
-  if (!dragging) return;
-  const r = normalizeDrag(dragging);
-  dragging = null;
-  if (r.w >= 8 && r.h >= 8) {
-    boxes.push(pxToNorm(r));
-    selectedIdx = boxes.length - 1;
-    dirty = true;
+  if (!interaction) return;
+  if (interaction.type === "new") {
+    const r = normalizeDrag(interaction);
+    if (r.w >= 8 && r.h >= 8) {
+      boxes.push(pxToNorm(r));
+      selectedIdx = boxes.length - 1;
+      dirty = true;
+    }
   }
+  interaction = null;
+  canvas.style.cursor = "crosshair";
   redraw();
 });
 
