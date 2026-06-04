@@ -193,3 +193,54 @@
   font-size: 12px;
 }
 .cw-thumb-del:hover { background: rgba(220, 53, 69, 0.85); }
+
+/* ----- webcam capture ----- */
+.cw-cam-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.cw-cam-stage[hidden] { display: none; }
+#cw-cam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+.cw-cam-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: #fff;
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+.cw-cam-flash.flashing { opacity: 0.85; }
+.cw-cam-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.cw-cam-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cw-cam-select select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+.cw-cam-status { font-size: 12px; min-height: 14px; margin: 0; }

@@ -24,9 +24,22 @@
       </div>
     </div>
 
-    <div class="cw-source cw-coming-soon">
+    <div class="cw-source" id="cw-source-cam">
       <h3>Capture via webcam</h3>
-      <p class="muted">Coming in phase 2 — point your laptop camera at the object and grab frames straight from the browser.</p>
+      <div id="cw-cam-stage" class="cw-cam-stage" hidden>
+        <video id="cw-cam-video" autoplay muted playsinline></video>
+        <div class="cw-cam-flash" id="cw-cam-flash"></div>
+      </div>
+      <div class="cw-cam-controls">
+        <button class="btn" id="cw-cam-start">▶ Start camera</button>
+        <button class="btn" id="cw-cam-capture" hidden>◉ Capture</button>
+        <button class="btn btn-secondary" id="cw-cam-stop" hidden>■ Stop</button>
+        <label class="cw-cam-select" id="cw-cam-pick" hidden>
+          <span>Camera</span>
+          <select id="cw-cam-device"></select>
+        </label>
+      </div>
+      <p class="cw-cam-status muted" id="cw-cam-status">Click Start, allow camera access, then aim and click Capture.</p>
     </div>
 
     <div class="cw-source cw-coming-soon">

@@ -109,6 +109,120 @@ drop.addEventListener("drop", (e) => {
   upload(files);
 });
 
+// ---- webcam capture --------------------------------------------------
+
+const camStage    = document.getElementById("cw-cam-stage");
+const camVideo    = document.getElementById("cw-cam-video");
+const camFlash    = document.getElementById("cw-cam-flash");
+const camStart    = document.getElementById("cw-cam-start");
+const camCapture  = document.getElementById("cw-cam-capture");
+const camStop     = document.getElementById("cw-cam-stop");
+const camPick     = document.getElementById("cw-cam-pick");
+const camDevice   = document.getElementById("cw-cam-device");
+const camStatus   = document.getElementById("cw-cam-status");
+
+let camStream = null;
+let camSessionCount = 0;
+
+async function camListDevices() {
+  const devs = await navigator.mediaDevices.enumerateDevices();
+  const cams = devs.filter((d) => d.kind === "videoinput");
+  camDevice.innerHTML = cams.map((c, i) =>
+    `<option value="${c.deviceId}">${c.label || `Camera ${i + 1}`}</option>`
+  ).join("");
+  camPick.hidden = cams.length < 2;
+}
+
+async function camStartFn() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    camStatus.textContent = "This browser doesn't support camera access.";
+    return;
+  }
+  try {
+    const constraints = {
+      audio: false,
+      video: camDevice.value
+        ? { deviceId: { exact: camDevice.value }, width: 1280, height: 720 }
+        : { width: 1280, height: 720, facingMode: "environment" },
+    };
+    camStream = await navigator.mediaDevices.getUserMedia(constraints);
+    camVideo.srcObject = camStream;
+    await camVideo.play();
+    await camListDevices();
+    camStage.hidden = false;
+    camStart.hidden = true;
+    camCapture.hidden = false;
+    camStop.hidden = false;
+    camStatus.textContent = "Aim at the object and click Capture. Press space to grab a frame.";
+  } catch (e) {
+    camStatus.textContent = "Camera blocked: " + e.message;
+  }
+}
+
+function camStopFn() {
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+  camVideo.srcObject = null;
+  camStage.hidden = true;
+  camStart.hidden = false;
+  camCapture.hidden = true;
+  camStop.hidden = true;
+  camStatus.textContent = camSessionCount
+    ? `Captured ${camSessionCount} this session.`
+    : "Click Start, allow camera access, then aim and click Capture.";
+}
+
+async function camCaptureFn() {
+  if (!camStream || camVideo.readyState < 2) return;
+  // Brief screen flash so the user gets a tactile "I captured a frame" signal.
+  camFlash.classList.add("flashing");
+  setTimeout(() => camFlash.classList.remove("flashing"), 130);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = camVideo.videoWidth;
+  canvas.height = camVideo.videoHeight;
+  canvas.getContext("2d").drawImage(camVideo, 0, 0);
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
+  camCapture.disabled = true;
+  try {
+    const r = await fetch(`/api/custom-classes/${encodeURIComponent(CID)}/images`, {
+      method: "POST",
+      headers: { "Content-Type": "image/jpeg" },
+      body: blob,
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      camStatus.textContent = "Capture failed: " + (err.error || r.status);
+      return;
+    }
+    camSessionCount += 1;
+    camStatus.textContent = `Captured ${camSessionCount} this session.`;
+    refresh();
+  } catch (e) {
+    camStatus.textContent = "Capture failed: " + e.message;
+  } finally {
+    camCapture.disabled = false;
+  }
+}
+
+camStart.addEventListener("click", camStartFn);
+camStop.addEventListener("click", camStopFn);
+camCapture.addEventListener("click", camCaptureFn);
+camDevice.addEventListener("change", () => {
+  if (camStream) { camStopFn(); setTimeout(camStartFn, 200); }
+});
+// Space bar captures while the camera is live (and we aren't typing in a field).
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Space") return;
+  if (!camStream) return;
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  e.preventDefault();
+  camCaptureFn();
+});
+window.addEventListener("pagehide", camStopFn);
+
 btnDelete.addEventListener("click", async () => {
   if (!confirm("Delete this entire class and every image?\nThis cannot be undone.")) return;
   const r = await fetch(`/api/custom-classes/${encodeURIComponent(CID)}`, { method: "DELETE" });
