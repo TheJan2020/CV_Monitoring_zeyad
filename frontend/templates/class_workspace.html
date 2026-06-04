@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Class workspace — PrimeAnalyze{% endblock %}
+{% block page_title %}<span id="cw-title">Class</span>{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='classes.css') }}">
+
+<section class="hist-section" data-class-id="{{ class_id }}">
+  <div class="cw-toolbar">
+    <a href="/classes" class="btn btn-secondary">← All classes</a>
+    <span class="cw-stats" id="cw-stats">— images · — labeled</span>
+    <button class="btn" id="cw-train" disabled title="Phase 3: enables once images are labeled">Train on GPU</button>
+    <button class="btn btn-secondary" id="cw-delete" title="Delete this class permanently">Delete class</button>
+  </div>
+
+  <div class="cw-sources">
+    <div class="cw-source" id="cw-source-upload">
+      <h3>Upload from this Mac</h3>
+      <div class="cw-drop" id="cw-drop">
+        <p>Drop JPG/PNG files here, or</p>
+        <input type="file" id="cw-file" accept="image/*" multiple hidden>
+        <button class="btn btn-secondary" id="cw-browse">Choose files</button>
+        <p class="cw-upload-status" id="cw-upload-status"></p>
+      </div>
+    </div>
+
+    <div class="cw-source cw-coming-soon">
+      <h3>Capture via webcam</h3>
+      <p class="muted">Coming in phase 2 — point your laptop camera at the object and grab frames straight from the browser.</p>
+    </div>
+
+    <div class="cw-source cw-coming-soon">
+      <h3>Pull from camera snapshots</h3>
+      <p class="muted">Coming in phase 2 — pick frames from baby-camera snapshots if the object appears there.</p>
+    </div>
+  </div>
+
+  <h3 class="cw-grid-heading">Images <span class="muted" id="cw-grid-count"></span></h3>
+  <div id="cw-grid" class="cw-grid"></div>
+  <div id="cw-empty" class="classes-empty" hidden>
+    No images yet — drop a few photos of the object above to get started.
+  </div>
+</section>
+
+<script>window.__CLASS_ID = "{{ class_id }}";</script>
+<script src="{{ url_for('static', filename='class_workspace.js') }}"></script>
+{% endblock %}

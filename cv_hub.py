@@ -2376,6 +2376,100 @@ def api_demo_analyze():
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
 
+# ---------- custom classes (user-trained objects) ---------------------------
+
+@app.route("/api/custom-classes", methods=["GET"])
+def api_classes_list():
+    import custom_classes as cc
+    return jsonify(cc.list_classes())
+
+
+@app.route("/api/custom-classes", methods=["POST"])
+def api_classes_create():
+    import custom_classes as cc
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    try:
+        rec = cc.create_class(name)
+        return jsonify(rec), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/custom-classes/<cid>", methods=["DELETE"])
+def api_classes_delete(cid):
+    import custom_classes as cc
+    cc.delete_class(cid)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/custom-classes/<cid>/images", methods=["POST"])
+def api_classes_upload(cid):
+    import custom_classes as cc
+    if cc.get_class(cid) is None:
+        return jsonify({"error": "class not found"}), 404
+    files = request.files.getlist("file") or request.files.getlist("files")
+    if not files:
+        # Single raw-body upload (used by webcam capture in phase 2).
+        body = request.get_data()
+        if not body:
+            return jsonify({"error": "no files"}), 400
+        try:
+            return jsonify({"saved": [cc.save_image(cid, body)]})
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+    saved, errs = [], []
+    for f in files:
+        try:
+            saved.append({**cc.save_image(cid, f.read()), "filename": f.filename})
+        except (ValueError, OSError) as e:
+            errs.append({"filename": f.filename, "error": str(e)})
+    return jsonify({"saved": saved, "errors": errs})
+
+
+@app.route("/api/custom-classes/<cid>/images", methods=["GET"])
+def api_classes_list_images(cid):
+    import custom_classes as cc
+    if cc.get_class(cid) is None:
+        return jsonify({"error": "class not found"}), 404
+    return jsonify(cc.list_images(cid))
+
+
+@app.route("/api/custom-classes/<cid>/images/<img_id>")
+def api_classes_serve_image(cid, img_id):
+    import custom_classes as cc
+    from flask import send_file
+    p = cc.image_path(cid, img_id)
+    if p is None:
+        return jsonify({"error": "not found"}), 404
+    return send_file(str(p), mimetype="image/jpeg", conditional=True, max_age=3600)
+
+
+@app.route("/api/custom-classes/<cid>/images/<img_id>", methods=["DELETE"])
+def api_classes_delete_image(cid, img_id):
+    import custom_classes as cc
+    ok = cc.delete_image(cid, img_id)
+    return jsonify({"ok": ok}), (200 if ok else 404)
+
+
+@app.route("/api/custom-classes/<cid>/images/<img_id>/label", methods=["PUT"])
+def api_classes_save_label(cid, img_id):
+    import custom_classes as cc
+    body = request.get_json(silent=True) or {}
+    boxes = body.get("boxes") or []
+    try:
+        cc.save_label(cid, img_id, boxes)
+        return jsonify({"ok": True, "box_count": len(boxes)})
+    except (ValueError, FileNotFoundError) as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/custom-classes/<cid>/images/<img_id>/label", methods=["GET"])
+def api_classes_load_label(cid, img_id):
+    import custom_classes as cc
+    return jsonify({"boxes": cc.load_label(cid, img_id)})
+
+
 @app.route("/healthz")
 def healthz():
     body = {

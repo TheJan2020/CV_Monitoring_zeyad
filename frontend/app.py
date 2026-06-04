@@ -165,6 +165,56 @@ def demo_page():
     )
 
 
+@app.route("/classes")
+def classes_page():
+    return render_template("classes.html", user=session["user"], active="classes")
+
+
+@app.route("/classes/<cid>")
+def class_workspace(cid):
+    return render_template(
+        "class_workspace.html",
+        user=session["user"],
+        active="classes",
+        class_id=cid,
+    )
+
+
+@app.route("/api/custom-classes", methods=["GET", "POST"], defaults={"sub": ""})
+@app.route("/api/custom-classes/<path:sub>", methods=["GET", "POST", "PUT", "DELETE"])
+def api_classes_proxy(sub):
+    """Generic passthrough to the hub for all /api/custom-classes/* calls.
+    Forwards the raw body + content-type, so JSON, multipart and raw
+    JPEG uploads all just work."""
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+    from flask import Response
+    target = f"http://127.0.0.1:8000/api/custom-classes"
+    if sub:
+        target = f"{target}/{sub}"
+    body = request.get_data() if request.method in ("POST", "PUT") else None
+    headers = {}
+    ct = request.headers.get("Content-Type")
+    if ct:
+        headers["Content-Type"] = ct
+    try:
+        req = Request(target, data=body, method=request.method, headers=headers)
+        with urlopen(req, timeout=30) as r:
+            return Response(
+                r.read(),
+                mimetype=r.headers.get("Content-Type", "application/json"),
+                status=r.status,
+            )
+    except HTTPError as e:
+        return Response(
+            e.read() or b'{"error":"hub error"}',
+            mimetype=e.headers.get("Content-Type", "application/json"),
+            status=e.code,
+        )
+    except URLError as e:
+        return jsonify({"error": f"hub unreachable: {e.reason}"}), 503
+
+
 @app.route("/api/demo/analyze", methods=["POST"])
 def api_demo_analyze_proxy():
     """Stream the JPEG frame through to the hub's demo endpoint and

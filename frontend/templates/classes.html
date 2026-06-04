@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Classes — PrimeAnalyze{% endblock %}
+{% block page_title %}Custom object classes{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='classes.css') }}">
+
+<section class="hist-section">
+  <p class="muted classes-help">
+    Train YOLO11s to detect objects beyond the 80 built-in COCO classes.
+    Create a class, upload or capture photos, label them, then fine-tune
+    on the RTX 5000. Trained classes show up live on the Demo page.
+  </p>
+
+  <div class="classes-toolbar">
+    <button class="btn" id="cls-new">+ New class</button>
+  </div>
+
+  <div id="classes-grid" class="classes-grid"></div>
+
+  <div id="classes-empty" class="classes-empty" hidden>
+    No custom classes yet — click <strong>+ New class</strong> to start.
+  </div>
+</section>
+
+<!-- create-class modal -->
+<div id="cls-modal" class="cls-modal" hidden>
+  <div class="cls-modal-body">
+    <h3>Create a new class</h3>
+    <label class="cls-field">
+      <span>Class name</span>
+      <input type="text" id="cls-name-input" placeholder="e.g. IQOS device" autocomplete="off" maxlength="60">
+    </label>
+    <p class="cls-modal-err" id="cls-modal-err" hidden></p>
+    <div class="cls-modal-actions">
+      <button class="btn btn-secondary" id="cls-cancel">Cancel</button>
+      <button class="btn" id="cls-create">Create</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='classes.js') }}"></script>
+{% endblock %}
