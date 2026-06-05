@@ -207,18 +207,27 @@ def main() -> None:
         phone_model = model if phone_model_name == get_yolo_model() else _to_device(YOLO(phone_model_name))
     yolo_devices_imgsz = get_yolo_devices_imgsz()
     device_class_ids = enabled_work_device_class_ids()
-    enable_pose = use_pose() and not args.no_pose
+    # Baby-monitor mode (CAMERA_TYPE=baby) — answer one question only:
+    # "is the baby in the crib?". Posture + motion + pose corroboration
+    # are skipped entirely so all GPU budget goes to person detection
+    # at higher resolutions / a more confident threshold. The
+    # PoseStateTracker still constructs (with the pose model unloaded
+    # it just keeps emitting 'unknown' for both posture and motion,
+    # which the worker downstream already handles).
+    camera_type = (os.environ.get("CAMERA_TYPE") or "general").strip().lower()
+    is_baby_cam = camera_type == "baby"
+
+    enable_pose = use_pose() and not args.no_pose and not is_baby_cam
     use_yolo_pose_path = enable_pose and use_yolo_pose()
     pose_model = _to_device(YOLO(get_yolo_pose_model())) if use_yolo_pose_path else None
+    if is_baby_cam:
+        print("Camera type: baby — pose / motion / activity classification disabled")
 
     if args.web:
         web_server.start(host=args.web_host, port=args.web_port)
 
-    # Baby-monitor mode (CAMERA_TYPE=baby): use the BabyTracker for a
-    # persistent lock + simplified 5-state activity machine.
-    camera_type = (os.environ.get("CAMERA_TYPE") or "general").strip().lower()
     baby_tracker = None
-    if camera_type == "baby":
+    if is_baby_cam:
         from baby_tracker import BabyTracker
         baby_tracker = BabyTracker(
             sleep_seconds=get_pose_sleep_seconds(),

@@ -75,9 +75,25 @@ class LockedBox:
 
 
 class BabyTracker:
-    """Persistent baby lock + simplified 5-state activity machine."""
+    """Persistent baby lock + binary in-crib state.
 
-    BABY_STATES = ("out_of_frame", "asleep", "lying", "sitting", "moving_a_lot")
+    Simplified (2026-06-05): the 5-state activity machine was producing
+    a 75% error rate on 'moving_a_lot', and the system's real job is
+    just answering 'is the baby in the crib?'. We now emit one of two
+    states:
+
+        in_crib       — tracker is LOCKED to a person bbox inside the
+                        crib ROI (the YOLO detection layer ROI-filters
+                        before the tracker ever sees a box)
+        out_of_frame  — no lock / no baby
+
+    Posture and motion are accepted as optional inputs but only used by
+    the existing release safeguards (upright postures + sustained
+    activity release locks the system is confident shouldn't be held).
+    They do not feed the state output.
+    """
+
+    BABY_STATES = ("out_of_frame", "in_crib")
 
     def __init__(
         self,
@@ -340,7 +356,7 @@ class BabyTracker:
                 )
 
         # Update activity state (only when LOCKED)
-        self._update_activity(posture, motion, t)
+        self._update_activity(motion, t)
 
         # --------- additional release rules (post-audit 2026-06-04) ---------
         # The lock can drift onto an adult or a pillow that keeps getting
@@ -377,14 +393,19 @@ class BabyTracker:
 
         return self.lock
 
-    def _update_activity(self, posture: str | None, motion: str | None, t: float) -> None:
+    def _update_activity(self, motion: str | None, t: float) -> None:
+        """Compute the binary in_crib / out_of_frame state. ``motion``
+        is accepted so still-time tracking keeps working for callers
+        that still classify motion; it no longer drives the state."""
         if self.state != LockState.LOCKED:
             self.activity = "out_of_frame"
             self._still_since = None
             self._still_seconds = 0.0
             return
-
-        # Track contiguous still time (used for asleep)
+        self.activity = "in_crib"
+        # Still-time tracking is kept because re-train logic may want to
+        # know how long the baby has been quiet — it just no longer maps
+        # to a derived 'asleep' label.
         is_still = (motion == "still")
         if is_still:
             if self._still_since is None:
@@ -393,32 +414,6 @@ class BabyTracker:
         else:
             self._still_since = None
             self._still_seconds = 0.0
-
-        # Map to 5 simplified states.
-        # Note: motion_score is already normalized 0..1 against the 'active'
-        # threshold in PoseStateTracker, so checking it again here was
-        # double-counting and firing on any small shift. Rely on the
-        # categorical motion classification + upright postures only.
-        moving_a_lot = (
-            motion == "active"
-            or posture in ("standing", "walking", "running")
-        )
-        if moving_a_lot:
-            self.activity = "moving_a_lot"
-        elif posture == "lying":
-            if is_still and self._still_seconds >= self.sleep_seconds:
-                self.activity = "asleep"
-            else:
-                self.activity = "lying"
-        elif posture == "sitting":
-            self.activity = "sitting"
-        elif posture in ("upright", "transitioning"):
-            self.activity = "sitting"
-        else:
-            # Posture unknown but locked. Hold previous activity if it was set;
-            # otherwise default to lying (most common for a crib).
-            if self.activity not in self.BABY_STATES or self.activity == "out_of_frame":
-                self.activity = "lying"
 
     @property
     def still_seconds(self) -> float:
