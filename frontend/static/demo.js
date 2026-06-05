@@ -53,6 +53,110 @@ let running = false;
 let inflight = false;
 let frameTimes = [];
 
+// ---- active-class filter -------------------------------------------------
+//
+// Enabled classes are stored as a Set<string>. Defaults: only "person"
+// from COCO + every custom class returned by the backend (added in
+// rebuildCustomChips on first response). User toggles persist to
+// localStorage so the panel keeps state across reloads.
+const LS_KEY = "demo.enabledClasses.v1";
+const DEFAULTS = new Set(["person"]);     // COCO defaults; customs default-on
+const POSE_LS  = "demo.showPose.v1";
+let enabledClasses;
+try {
+  const raw = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+  enabledClasses = new Set(Array.isArray(raw) ? raw : Array.from(DEFAULTS));
+} catch { enabledClasses = new Set(DEFAULTS); }
+const knownCustoms = new Set();           // populated as the server reports them
+
+function persistClasses() {
+  localStorage.setItem(LS_KEY, JSON.stringify([...enabledClasses]));
+}
+
+function classCounterText() {
+  return `(${enabledClasses.size} on)`;
+}
+function refreshClassChips() {
+  document.querySelectorAll("[data-cls]").forEach((el) => {
+    el.classList.toggle("on", enabledClasses.has(el.dataset.cls));
+  });
+  const counter = document.getElementById("demo-class-counter");
+  if (counter) counter.textContent = classCounterText();
+}
+function toggleClass(name) {
+  if (enabledClasses.has(name)) enabledClasses.delete(name);
+  else enabledClasses.add(name);
+  persistClasses();
+  refreshClassChips();
+}
+
+// Custom classes arrive in the analyze response. Render them as a
+// dedicated row above the COCO list and default-enable any new ones.
+function rebuildCustomChips(customs) {
+  if (!customs || !customs.length) return;
+  const wrap = document.getElementById("demo-custom-group");
+  const ul   = document.getElementById("demo-custom-chips");
+  if (!wrap || !ul) return;
+  let changed = false;
+  for (const c of customs) {
+    if (!knownCustoms.has(c.name)) {
+      knownCustoms.add(c.name);
+      if (!enabledClasses.has(c.name)) {
+        enabledClasses.add(c.name);    // custom classes default-on
+        changed = true;
+      }
+    }
+  }
+  // Re-render the custom chip list to reflect any new arrivals.
+  ul.innerHTML = customs.map((c) => {
+    const safe = c.name.replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[ch]));
+    return `<li data-cls="${safe}" data-custom="1">${safe}</li>`;
+  }).join("");
+  wrap.hidden = false;
+  if (changed) persistClasses();
+  refreshClassChips();
+}
+
+document.addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-cls]");
+  if (!chip) return;
+  toggleClass(chip.dataset.cls);
+});
+const btnDefault = document.getElementById("demo-class-default");
+const btnClear   = document.getElementById("demo-class-clear");
+const btnAll     = document.getElementById("demo-class-all");
+btnDefault.addEventListener("click", () => {
+  enabledClasses = new Set([...DEFAULTS, ...knownCustoms]);
+  persistClasses();
+  refreshClassChips();
+});
+btnClear.addEventListener("click", () => {
+  // Drop every COCO chip; keep customs.
+  document.querySelectorAll("[data-cls]:not([data-custom])").forEach(
+    (el) => enabledClasses.delete(el.dataset.cls),
+  );
+  persistClasses();
+  refreshClassChips();
+});
+btnAll.addEventListener("click", () => {
+  document.querySelectorAll("[data-cls]:not([data-custom])").forEach(
+    (el) => enabledClasses.add(el.dataset.cls),
+  );
+  persistClasses();
+  refreshClassChips();
+});
+
+// ---- pose toggle ---------------------------------------------------------
+const poseToggle = document.getElementById("demo-pose");
+poseToggle.checked = localStorage.getItem(POSE_LS) === "1";
+poseToggle.addEventListener("change", () => {
+  localStorage.setItem(POSE_LS, poseToggle.checked ? "1" : "0");
+});
+
+refreshClassChips();
+
 fpsSlider.addEventListener("input", () => { fpsVal.textContent = fpsSlider.value; });
 confSlider.addEventListener("input", () => { confVal.textContent = parseFloat(confSlider.value).toFixed(2); });
 
@@ -129,7 +233,10 @@ async function loop() {
       );
 
       const t0 = performance.now();
-      const r = await fetch("/api/demo/analyze", {
+      const url = poseToggle.checked
+        ? "/api/demo/analyze?pose=1"
+        : "/api/demo/analyze";
+      const r = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "image/jpeg" },
         body: blob,
@@ -137,6 +244,7 @@ async function loop() {
       const rtt = performance.now() - t0;
       if (r.ok) {
         const data = await r.json();
+        rebuildCustomChips(data.custom_classes);
         draw(data);
         elInfMs.textContent = `${Math.round(data.inference_ms || 0)} ms`;
         elRttMs.textContent = `${Math.round(rtt)} ms`;
@@ -176,6 +284,7 @@ function draw(data) {
 
   for (const d of data.detections || []) {
     if (d.confidence < minConf) continue;
+    if (!enabledClasses.has(d.class)) continue;
     const col = colorFor(d);
     const [x1, y1, x2, y2] = d.box;
     const X1 = x1 * sx, Y1 = y1 * sy, X2 = x2 * sx, Y2 = y2 * sy;
@@ -189,6 +298,48 @@ function draw(data) {
     ctx.fillRect(X1, Y1 - 20, tw, 18);
     ctx.fillStyle = "#fff";
     ctx.fillText(label, X1 + 6, Y1 - 6);
+  }
+
+  // Pose skeleton — drawn in yellow over the boxes. COCO 17-keypoint
+  // layout: nose 0, eyes 1-2, ears 3-4, shoulders 5-6, elbows 7-8,
+  // wrists 9-10, hips 11-12, knees 13-14, ankles 15-16.
+  if (poseToggle.checked && Array.isArray(data.poses)) {
+    drawPoses(data.poses, sx, sy, minConf);
+  }
+}
+
+const POSE_EDGES = [
+  [5, 7], [7, 9], [6, 8], [8, 10],          // arms
+  [11, 13], [13, 15], [12, 14], [14, 16],    // legs
+  [5, 6], [5, 11], [6, 12], [11, 12],        // torso
+  [0, 1], [0, 2], [1, 3], [2, 4],            // face
+];
+const POSE_COLOR = "#f5c518";       // yellow — replaces the old pink
+const POSE_KP_CONF = 0.3;            // hide noisy low-confidence keypoints
+
+function drawPoses(poses, sx, sy, minConf) {
+  ctx.strokeStyle = POSE_COLOR;
+  ctx.fillStyle = POSE_COLOR;
+  for (const p of poses) {
+    if (p.confidence != null && p.confidence < minConf) continue;
+    const kps = p.keypoints || [];
+    // Edges
+    ctx.lineWidth = 2.5;
+    for (const [a, b] of POSE_EDGES) {
+      const A = kps[a], B = kps[b];
+      if (!A || !B || A[2] < POSE_KP_CONF || B[2] < POSE_KP_CONF) continue;
+      ctx.beginPath();
+      ctx.moveTo(A[0] * sx, A[1] * sy);
+      ctx.lineTo(B[0] * sx, B[1] * sy);
+      ctx.stroke();
+    }
+    // Joints
+    for (const k of kps) {
+      if (!k || k[2] < POSE_KP_CONF) continue;
+      ctx.beginPath();
+      ctx.arc(k[0] * sx, k[1] * sy, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 

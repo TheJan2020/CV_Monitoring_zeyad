@@ -153,9 +153,44 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 2px 6px;
-  color: var(--text);
+  padding: 3px 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.55;
+  transition: background 0.1s, opacity 0.1s, border-color 0.1s;
 }
+.demo-class-group li:hover { border-color: var(--accent); opacity: 1; }
+.demo-class-group li.on {
+  background: rgba(11, 176, 186, 0.16);
+  color: var(--text);
+  border-color: var(--accent);
+  opacity: 1;
+}
+.demo-class-group li[data-custom].on {
+  background: rgba(245, 197, 24, 0.20);
+  border-color: #f5c518;
+  color: #b08800;
+}
+.demo-class-help { font-size: 12px; max-width: 820px; margin: 0 0 12px 0; }
+.demo-class-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.demo-class-bulk .btn { font-size: 11.5px; padding: 4px 10px; }
+
+.demo-pose-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.demo-pose-toggle input { accent-color: #f5c518; }
 .demo-details + .demo-details { margin-top: 10px; }
 .demo-details code {
   font-family: ui-monospace, monospace;

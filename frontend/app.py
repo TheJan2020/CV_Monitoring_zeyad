@@ -239,9 +239,12 @@ def api_demo_analyze_proxy():
         jpeg = request.files["frame"].read()
     else:
         jpeg = request.get_data()
+    target = "http://127.0.0.1:8000/api/demo/analyze"
+    if request.query_string:
+        target = f"{target}?{request.query_string.decode('ascii', 'ignore')}"
     try:
         req = Request(
-            "http://127.0.0.1:8000/api/demo/analyze",
+            target,
             data=jpeg,
             method="POST",
             headers={"Content-Type": "image/jpeg"},

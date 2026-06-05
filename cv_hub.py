@@ -2391,11 +2391,14 @@ def api_demo_analyze():
         return jsonify({"error": "missing or empty frame"}), 400
     if len(jpeg) > 5 * 1024 * 1024:
         return jsonify({"error": "frame too large (>5 MB)"}), 413
+    include_pose = request.args.get("pose", "0").lower() in ("1", "true", "yes")
     try:
         import mini_inference
         # Cap inference image size on the public endpoint so a clever
         # uploader can't ask for 4K processing.
-        return jsonify(mini_inference.analyze(jpeg, conf=0.25, imgsz=640))
+        return jsonify(mini_inference.analyze(
+            jpeg, conf=0.25, imgsz=640, include_pose=include_pose,
+        ))
     except Exception as e:
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 

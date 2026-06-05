@@ -24,6 +24,11 @@ from pathlib import Path
 _lock = threading.Lock()
 _model = None  # ultralytics YOLO instance, lazy-loaded
 _model_name = "yolo11s.pt"  # stock model — independent of any per-camera fine-tune
+# Pose model is lazy-loaded only the first time a caller asks for
+# keypoints — ~30 MB and ~50 ms/frame on the RTX 5000, so we don't pay
+# for it unless the demo's pose toggle is actually on.
+_pose_model = None
+_pose_model_name = "yolo11s-pose.pt"
 
 # When a custom-class detection overlaps a base-COCO detection above
 # this IoU, the COCO one is suppressed. The custom model is more
@@ -57,6 +62,14 @@ def _get_model():
         from ultralytics import YOLO
         _model = YOLO(_model_name)
     return _model
+
+
+def _get_pose_model():
+    global _pose_model
+    if _pose_model is None:
+        from ultralytics import YOLO
+        _pose_model = YOLO(_pose_model_name)
+    return _pose_model
 
 
 def _custom_class_meta(cid: str) -> str:
@@ -142,7 +155,8 @@ def list_classes() -> dict:
     }
 
 
-def analyze(jpeg_bytes: bytes, conf: float = 0.25, imgsz: int = 640) -> dict:
+def analyze(jpeg_bytes: bytes, conf: float = 0.25, imgsz: int = 640,
+            include_pose: bool = False) -> dict:
     """Run YOLO on a JPEG and return structured detections.
 
     Returns
@@ -162,6 +176,7 @@ def analyze(jpeg_bytes: bytes, conf: float = 0.25, imgsz: int = 640) -> dict:
     img = Image.open(io.BytesIO(jpeg_bytes)).convert("RGB")
     W, H = img.size
     detections: list[dict] = []
+    poses: list[dict] = []
 
     t0 = time.time()
     with _lock:
@@ -202,6 +217,38 @@ def analyze(jpeg_bytes: bytes, conf: float = 0.25, imgsz: int = 640) -> dict:
                         "box": [round(c, 1) for c in box.xyxy[0].tolist()],
                         "source": cm["cid"],
                     })
+
+        # Pose skeleton (optional). yolo11s-pose runs at the same imgsz
+        # and returns 17 COCO keypoints per detected person. Adds
+        # ~30-50 ms on the RTX 5000 so it's gated behind the demo's
+        # toggle; with it off we don't pay the cost.
+        if include_pose:
+            pose_results = _get_pose_model().predict(
+                source=img, conf=conf, imgsz=imgsz, verbose=False, device=0,
+            )
+            if pose_results and pose_results[0].keypoints is not None:
+                pr = pose_results[0]
+                kps_xy = pr.keypoints.xy.tolist() if pr.keypoints.xy is not None else []
+                kps_conf = (pr.keypoints.conf.tolist()
+                            if pr.keypoints.conf is not None else
+                            [[1.0] * len(p) for p in kps_xy])
+                pose_boxes = (pr.boxes.xyxy.tolist()
+                              if pr.boxes is not None and pr.boxes.xyxy is not None
+                              else [[0, 0, 0, 0]] * len(kps_xy))
+                pose_confs = (pr.boxes.conf.tolist()
+                              if pr.boxes is not None and pr.boxes.conf is not None
+                              else [1.0] * len(kps_xy))
+                for i, person_kps in enumerate(kps_xy):
+                    confs_i = kps_conf[i] if i < len(kps_conf) else [1.0] * len(person_kps)
+                    points = [
+                        [round(p[0], 1), round(p[1], 1), round(float(c), 3)]
+                        for p, c in zip(person_kps, confs_i)
+                    ]
+                    poses.append({
+                        "keypoints": points,
+                        "box": [round(c, 1) for c in pose_boxes[i]] if i < len(pose_boxes) else None,
+                        "confidence": round(float(pose_confs[i]), 3) if i < len(pose_confs) else None,
+                    })
     elapsed_ms = (time.time() - t0) * 1000
 
     # Dedup: when a custom-class detection overlaps a base COCO
@@ -224,6 +271,7 @@ def analyze(jpeg_bytes: bytes, conf: float = 0.25, imgsz: int = 640) -> dict:
 
     return {
         "detections": detections,
+        "poses": poses,
         "image_width": W,
         "image_height": H,
         "inference_ms": round(elapsed_ms, 1),

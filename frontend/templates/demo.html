@@ -37,6 +37,10 @@
       <input type="range" id="demo-conf" min="0.10" max="0.80" step="0.05" value="0.25">
       <span id="demo-conf-val">0.25</span>
     </label>
+    <label class="demo-pose-toggle">
+      <input type="checkbox" id="demo-pose">
+      <span>Show pose skeleton</span>
+    </label>
   </div>
 
   <div class="demo-stats">
@@ -46,80 +50,98 @@
     <div class="demo-stat"><div class="demo-stat-k">Persons</div><div class="demo-stat-v" id="demo-persons">—</div></div>
   </div>
 
-  <details class="demo-details">
-    <summary>Detectable objects (80 classes — YOLO11s / COCO)</summary>
+  <details class="demo-details" open>
+    <summary>Active classes <span class="muted" id="demo-class-counter"></span></summary>
+    <p class="muted demo-class-help">
+      Click a chip to toggle. Only enabled classes are drawn on the
+      overlay. By default just <strong>person</strong> + your trained
+      custom classes — the wide COCO net (cell phone, toothbrush, etc.)
+      is off so it doesn't contradict what you're teaching the system.
+    </p>
+
+    <div class="demo-class-group" id="demo-custom-group" hidden>
+      <h4>Custom classes (trained on this system)</h4>
+      <ul id="demo-custom-chips"></ul>
+    </div>
+
     <div class="demo-classes">
       <div class="demo-class-group">
         <h4>People &amp; animals</h4>
-        <ul>
-          <li>person</li><li>bird</li><li>cat</li><li>dog</li><li>horse</li>
-          <li>sheep</li><li>cow</li><li>elephant</li><li>bear</li><li>zebra</li><li>giraffe</li>
+        <ul data-coco-group>
+          <li data-cls="person">person</li><li data-cls="bird">bird</li><li data-cls="cat">cat</li><li data-cls="dog">dog</li><li data-cls="horse">horse</li>
+          <li data-cls="sheep">sheep</li><li data-cls="cow">cow</li><li data-cls="elephant">elephant</li><li data-cls="bear">bear</li><li data-cls="zebra">zebra</li><li data-cls="giraffe">giraffe</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Vehicles</h4>
-        <ul>
-          <li>bicycle</li><li>car</li><li>motorcycle</li><li>airplane</li>
-          <li>bus</li><li>train</li><li>truck</li><li>boat</li>
+        <ul data-coco-group>
+          <li data-cls="bicycle">bicycle</li><li data-cls="car">car</li><li data-cls="motorcycle">motorcycle</li><li data-cls="airplane">airplane</li>
+          <li data-cls="bus">bus</li><li data-cls="train">train</li><li data-cls="truck">truck</li><li data-cls="boat">boat</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Outdoor / street</h4>
-        <ul>
-          <li>traffic light</li><li>fire hydrant</li><li>stop sign</li>
-          <li>parking meter</li><li>bench</li>
+        <ul data-coco-group>
+          <li data-cls="traffic light">traffic light</li><li data-cls="fire hydrant">fire hydrant</li><li data-cls="stop sign">stop sign</li>
+          <li data-cls="parking meter">parking meter</li><li data-cls="bench">bench</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Accessories</h4>
-        <ul>
-          <li>backpack</li><li>umbrella</li><li>handbag</li><li>tie</li><li>suitcase</li>
+        <ul data-coco-group>
+          <li data-cls="backpack">backpack</li><li data-cls="umbrella">umbrella</li><li data-cls="handbag">handbag</li><li data-cls="tie">tie</li><li data-cls="suitcase">suitcase</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Sports</h4>
-        <ul>
-          <li>frisbee</li><li>skis</li><li>snowboard</li><li>sports ball</li><li>kite</li>
-          <li>baseball bat</li><li>baseball glove</li><li>skateboard</li>
-          <li>surfboard</li><li>tennis racket</li>
+        <ul data-coco-group>
+          <li data-cls="frisbee">frisbee</li><li data-cls="skis">skis</li><li data-cls="snowboard">snowboard</li><li data-cls="sports ball">sports ball</li><li data-cls="kite">kite</li>
+          <li data-cls="baseball bat">baseball bat</li><li data-cls="baseball glove">baseball glove</li><li data-cls="skateboard">skateboard</li>
+          <li data-cls="surfboard">surfboard</li><li data-cls="tennis racket">tennis racket</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Kitchen &amp; food</h4>
-        <ul>
-          <li>bottle</li><li>wine glass</li><li>cup</li><li>fork</li><li>knife</li>
-          <li>spoon</li><li>bowl</li><li>banana</li><li>apple</li><li>sandwich</li>
-          <li>orange</li><li>broccoli</li><li>carrot</li><li>hot dog</li>
-          <li>pizza</li><li>donut</li><li>cake</li>
+        <ul data-coco-group>
+          <li data-cls="bottle">bottle</li><li data-cls="wine glass">wine glass</li><li data-cls="cup">cup</li><li data-cls="fork">fork</li><li data-cls="knife">knife</li>
+          <li data-cls="spoon">spoon</li><li data-cls="bowl">bowl</li><li data-cls="banana">banana</li><li data-cls="apple">apple</li><li data-cls="sandwich">sandwich</li>
+          <li data-cls="orange">orange</li><li data-cls="broccoli">broccoli</li><li data-cls="carrot">carrot</li><li data-cls="hot dog">hot dog</li>
+          <li data-cls="pizza">pizza</li><li data-cls="donut">donut</li><li data-cls="cake">cake</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Furniture &amp; indoor</h4>
-        <ul>
-          <li>chair</li><li>couch</li><li>potted plant</li><li>bed</li>
-          <li>dining table</li><li>toilet</li>
+        <ul data-coco-group>
+          <li data-cls="chair">chair</li><li data-cls="couch">couch</li><li data-cls="potted plant">potted plant</li><li data-cls="bed">bed</li>
+          <li data-cls="dining table">dining table</li><li data-cls="toilet">toilet</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Electronics</h4>
-        <ul>
-          <li>tv</li><li>laptop</li><li>mouse</li><li>remote</li>
-          <li>keyboard</li><li>cell phone</li>
+        <ul data-coco-group>
+          <li data-cls="tv">tv</li><li data-cls="laptop">laptop</li><li data-cls="mouse">mouse</li><li data-cls="remote">remote</li>
+          <li data-cls="keyboard">keyboard</li><li data-cls="cell phone">cell phone</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Appliances</h4>
-        <ul>
-          <li>microwave</li><li>oven</li><li>toaster</li><li>sink</li><li>refrigerator</li>
+        <ul data-coco-group>
+          <li data-cls="microwave">microwave</li><li data-cls="oven">oven</li><li data-cls="toaster">toaster</li><li data-cls="sink">sink</li><li data-cls="refrigerator">refrigerator</li>
         </ul>
       </div>
       <div class="demo-class-group">
         <h4>Household / other</h4>
-        <ul>
-          <li>book</li><li>clock</li><li>vase</li><li>scissors</li>
-          <li>teddy bear</li><li>hair drier</li><li>toothbrush</li>
+        <ul data-coco-group>
+          <li data-cls="book">book</li><li data-cls="clock">clock</li><li data-cls="vase">vase</li><li data-cls="scissors">scissors</li>
+          <li data-cls="teddy bear">teddy bear</li><li data-cls="hair drier">hair drier</li><li data-cls="toothbrush">toothbrush</li>
         </ul>
       </div>
+    </div>
+
+    <div class="demo-class-bulk">
+      <button class="btn btn-secondary" id="demo-class-default">Reset to defaults (person + customs)</button>
+      <button class="btn btn-secondary" id="demo-class-clear">Disable all COCO</button>
+      <button class="btn btn-secondary" id="demo-class-all">Enable all COCO</button>
     </div>
   </details>
 
@@ -129,8 +151,8 @@
       <li>The browser uses <code>getUserMedia</code> to access your camera (you'll see a permission prompt).</li>
       <li>Every ~250 ms (4 fps default) a frame is drawn to a hidden canvas, encoded as JPEG ~70 % quality.</li>
       <li>The JPEG is POSTed to <code>/api/demo/analyze</code> over HTTPS through the Cloudflare tunnel.</li>
-      <li>The hub runs YOLO11s on the GPU at 640 px imgsz, conf ≥ 0.25, and returns the bounding boxes as JSON.</li>
-      <li>The overlay canvas draws the boxes on top of the live video.</li>
+      <li>The hub runs YOLO11s on the GPU at 640 px imgsz, conf ≥ 0.25, plus every trained custom-class model (IQOS etc.), and returns the bounding boxes as JSON. When the pose toggle is on, yolo11s-pose also runs and returns COCO 17 keypoints per person.</li>
+      <li>The overlay canvas draws boxes for the classes you've enabled and (optionally) the yellow skeleton on top of the live video.</li>
     </ol>
   </details>
 </section>
