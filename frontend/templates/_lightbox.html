@@ -53,13 +53,33 @@
       <span class="lb-label-status" id="lb-label-status"></span>
     </div>
     <p class="lb-label-help muted">
-      <strong>Correct</strong> = the system was right about whether the BABY was in the crib
-      (inside the yellow ROI polygon). Adults / siblings walking past the
-      crib don't count — only the baby inside the crib.
+      <strong>Correct</strong> = the system was right about whether the BABY was in the crib.
+      Adults walking past the crib don't count — only the baby inside the crib.
     </p>
+
+    <!-- Correction stage: appears when the operator marks Incorrect on a
+         frame the system missed (out_of_frame). Drawing a box here tells
+         the re-train pipeline 'the baby was actually here'. -->
+    <div class="lb-correction" id="lb-correction" hidden>
+      <div class="lb-correction-head">
+        <strong>Draw where the baby actually is</strong>
+        <span class="muted">click and drag on the image · we save this as ground truth for the next re-train</span>
+      </div>
+      <div class="lb-correction-stage" id="lb-correction-stage">
+        <img id="lb-correction-img" alt="">
+        <canvas id="lb-correction-canvas"></canvas>
+      </div>
+      <div class="lb-correction-actions">
+        <button class="btn btn-secondary" id="lb-correction-clear">Clear box</button>
+        <button class="btn" id="lb-correction-save">Save correction</button>
+        <span class="muted" id="lb-correction-status"></span>
+      </div>
+    </div>
 
     <div class="lb-params" id="lb-params">
       <div class="muted">No parameters captured.</div>
     </div>
   </div>
 </div>
+
+<script src="{{ url_for('static', filename='lb_correction.js') }}"></script>

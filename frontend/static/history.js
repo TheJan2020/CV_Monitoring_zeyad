@@ -631,10 +631,40 @@ function openLightbox(snap) {
   // what to PATCH against.
   _openSnap = snap;
   syncLabelRow(snap.label || null);
+  syncCorrectionVisibility();
   // Always default to the Images tab when opening — least disruptive.
   setLightboxTab("images");
   lightbox.classList.remove("hidden");
 }
+
+// Show the draw-a-box correction stage when the operator has marked
+// this snapshot Incorrect AND the system said out_of_frame. In that
+// false-negative case the drawn box is the highest-value training
+// signal we can collect (the model was looking but missed). For false
+// positives — system saw a baby that wasn't there — there's nothing
+// to draw; clearing or flipping the label is enough.
+function syncCorrectionVisibility() {
+  const root = document.getElementById("lb-correction");
+  if (!root || !_openSnap) return;
+  const act = (_openSnap.state && _openSnap.state.activity) || "";
+  const eligible = _openSnap.label === "incorrect" && act === "out_of_frame";
+  if (eligible) {
+    LbCorrection.show(_openSnap);
+  } else {
+    LbCorrection.hide();
+  }
+}
+
+LbCorrection.attach({
+  onSaved: (snap, boxes) => {
+    // Persist into the in-memory grid copies so re-renders keep the
+    // correction visible without refetching.
+    for (const arr of [_currentSnaps, _allSnapsForFilter]) {
+      const m = arr.find((s) => s.id === snap.id);
+      if (m) m.correction_boxes = boxes;
+    }
+  },
+});
 
 // Tab click handlers (set up once).
 document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
@@ -683,6 +713,7 @@ async function labelSnapshot(value) {
   // Refresh the grid cell so the badge/border updates without a full
   // re-render of the whole grid.
   refreshSnapCell(_openSnap);
+  syncCorrectionVisibility();
   try {
     const r = await fetch(`/api/snapshots/${_openSnap.id}/label`, {
       method: "PATCH",

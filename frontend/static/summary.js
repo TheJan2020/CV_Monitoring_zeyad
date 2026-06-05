@@ -928,9 +928,28 @@ function openLightbox(snap) {
   document.getElementById("lb-params").innerHTML = renderParamsSum(snap.state);
   _openSnap = snap;
   syncLabelRowSum(snap.label || null);
+  syncCorrectionVisibilitySum();
   setLightboxTab("images");
   lightbox.classList.remove("hidden");
 }
+
+function syncCorrectionVisibilitySum() {
+  const root = document.getElementById("lb-correction");
+  if (!root || !_openSnap) return;
+  const act = (_openSnap.state && _openSnap.state.activity) || "";
+  if (_openSnap.label === "incorrect" && act === "out_of_frame") {
+    LbCorrection.show(_openSnap);
+  } else {
+    LbCorrection.hide();
+  }
+}
+
+LbCorrection.attach({
+  onSaved: (snap, boxes) => {
+    const inStore = _snapshots.find((s) => s.id === snap.id);
+    if (inStore) inStore.correction_boxes = boxes;
+  },
+});
 
 document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
   el.addEventListener("click", () => setLightboxTab(el.dataset.tab)),
@@ -980,6 +999,7 @@ async function labelSnapshotSum(value) {
   // Optimistic update — keep _snapshots in sync so re-renders match.
   _openSnap.label = newLabel;
   syncLabelRowSum(newLabel);
+  syncCorrectionVisibilitySum();
   const inStore = _snapshots.find((s) => s.id === _openSnap.id);
   if (inStore) inStore.label = newLabel;
   refreshSumThumb(_openSnap);

@@ -95,6 +95,13 @@ def _open() -> sqlite3.Connection:
             _db.execute("ALTER TABLE snapshots ADD COLUMN label TEXT")
         if "labeled_at" not in cols:
             _db.execute("ALTER TABLE snapshots ADD COLUMN labeled_at REAL")
+        # Operator-drawn bbox(es) on snapshots where the system MISSED
+        # the baby. JSON-encoded list of [cx, cy, w, h] in normalized
+        # 0..1 YOLO coordinates. Used by the re-train pipeline as
+        # high-value supervised samples — they're literally 'the model
+        # was wrong here, the correct answer is this box'.
+        if "correction_json" not in cols:
+            _db.execute("ALTER TABLE snapshots ADD COLUMN correction_json TEXT")
     return _db
 
 
@@ -192,6 +199,44 @@ def set_snapshot_label(snapshot_id: int, label: str | None) -> bool:
             (label, time.time() if label is not None else None, snapshot_id),
         )
         return cur.rowcount > 0
+
+
+def set_snapshot_correction(snapshot_id: int, boxes: list[list[float]] | None) -> bool:
+    """Save operator-drawn bounding box(es) for a snapshot the system
+    got wrong. ``boxes`` is a list of [cx, cy, w, h] in 0..1; ``None``
+    clears the correction. Returns True on success."""
+    if boxes is not None:
+        for b in boxes:
+            if len(b) != 4 or not all(isinstance(v, (int, float)) for v in b):
+                raise ValueError(f"invalid box: {b!r}")
+            for v in b:
+                if not 0.0 <= float(v) <= 1.0:
+                    raise ValueError(f"box value out of [0,1]: {v!r}")
+    payload = json.dumps(boxes) if boxes else None
+    with _LOCK:
+        db = _open()
+        cur = db.execute(
+            "UPDATE snapshots SET correction_json = ? WHERE id = ?",
+            (payload, snapshot_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_snapshot_correction(snapshot_id: int) -> list[list[float]]:
+    """Read the operator-drawn boxes for a snapshot. Empty list when
+    nothing has been drawn."""
+    with _LOCK:
+        db = _open()
+        row = db.execute(
+            "SELECT correction_json FROM snapshots WHERE id = ?",
+            (snapshot_id,),
+        ).fetchone()
+    if not row or not row[0]:
+        return []
+    try:
+        return json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 def snapshot_stats(camera_id: str | None = None) -> dict:
@@ -348,7 +393,8 @@ def get_snapshots(camera_id: str, day: str) -> list[dict]:
     with _LOCK:
         db = _open()
         rows = db.execute(
-            "SELECT id, captured_at, file_rel, state_json, clip_rel, label "
+            "SELECT id, captured_at, file_rel, state_json, clip_rel, label, "
+            "correction_json "
             "FROM snapshots "
             "WHERE camera_id=? AND captured_at >= ? AND captured_at < ? "
             "ORDER BY captured_at",
@@ -363,10 +409,16 @@ def get_snapshots(camera_id: str, day: str) -> list[dict]:
             "state": None,
             "clip_rel": r[4],
             "label": r[5],
+            "correction_boxes": [],
         }
         if r[3]:
             try:
                 item["state"] = json.loads(r[3])
+            except json.JSONDecodeError:
+                pass
+        if r[6]:
+            try:
+                item["correction_boxes"] = json.loads(r[6])
             except json.JSONDecodeError:
                 pass
         out.append(item)

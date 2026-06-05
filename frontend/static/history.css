@@ -919,6 +919,52 @@
 }
 .lb-label-help strong { color: var(--text); font-weight: 600; }
 
+/* ----- correction draw stage ----- */
+.lb-correction {
+  padding: 14px 18px 18px;
+  background: var(--surface);
+  border-top: 1px dashed var(--border);
+}
+.lb-correction[hidden] { display: none; }
+.lb-correction-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.lb-correction-head .muted { font-size: 12px; }
+.lb-correction-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  user-select: none;
+}
+#lb-correction-img {
+  display: block;
+  max-width: min(100%, 720px);
+  max-height: 50vh;
+  height: auto;
+  width: auto;
+}
+#lb-correction-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  cursor: crosshair;
+}
+.lb-correction-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.lb-correction-actions .muted { font-size: 12px; margin-left: 8px; }
+
 .param-row {
   display: flex;
   justify-content: space-between;

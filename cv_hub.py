@@ -2095,6 +2095,30 @@ def api_set_snapshot_labels_bulk():
     return jsonify({"updated": n, "label": label})
 
 
+@app.route("/api/snapshots/<int:snap_id>/correction", methods=["PUT"])
+def api_set_snapshot_correction(snap_id):
+    """Save operator-drawn bounding box(es) for a snapshot the system
+    got wrong. Body: ``{"boxes": [[cx, cy, w, h], ...]}`` with all
+    floats in 0..1 (YOLO normalized). Empty list / null clears.
+    Used by the re-train pipeline as supervised correction samples."""
+    body = request.get_json(silent=True) or {}
+    boxes = body.get("boxes")
+    if boxes is None:
+        boxes = []
+    try:
+        ok = state_recorder.set_snapshot_correction(snap_id, boxes or None)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not ok:
+        return jsonify({"error": "snapshot not found"}), 404
+    return jsonify({"ok": True, "box_count": len(boxes)})
+
+
+@app.route("/api/snapshots/<int:snap_id>/correction", methods=["GET"])
+def api_get_snapshot_correction(snap_id):
+    return jsonify({"boxes": state_recorder.get_snapshot_correction(snap_id)})
+
+
 @app.route("/api/snapshots/<int:snap_id>/label", methods=["PATCH"])
 def api_set_snapshot_label(snap_id):
     """Set or clear an operator label on a saved snapshot.
