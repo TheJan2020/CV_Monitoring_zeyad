@@ -25,6 +25,26 @@ _lock = threading.Lock()
 _model = None  # ultralytics YOLO instance, lazy-loaded
 _model_name = "yolo11s.pt"  # stock model — independent of any per-camera fine-tune
 
+# When a custom-class detection overlaps a base-COCO detection above
+# this IoU, the COCO one is suppressed. The custom model is more
+# specific — if it confidently calls something IQOS we don't want the
+# base model's "cell phone" or "toothbrush" guess to also appear on
+# the same spot.
+_SUPPRESS_IOU = 0.4
+
+
+def _iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1 = max(ax1, bx1); iy1 = max(ay1, by1)
+    ix2 = min(ax2, bx2); iy2 = min(ay2, by2)
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0.0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    area_a = max(1.0, (ax2 - ax1) * (ay2 - ay1))
+    area_b = max(1.0, (bx2 - bx1) * (by2 - by1))
+    return inter / (area_a + area_b - inter)
+
 # Custom class models: keyed by class id.
 #   { cid: {"model": YOLO, "display_name": str, "mtime": float} }
 _custom_cache: dict = {}
@@ -183,6 +203,24 @@ def analyze(jpeg_bytes: bytes, conf: float = 0.25, imgsz: int = 640) -> dict:
                         "source": cm["cid"],
                     })
     elapsed_ms = (time.time() - t0) * 1000
+
+    # Dedup: when a custom-class detection overlaps a base COCO
+    # detection above _SUPPRESS_IOU, drop the COCO one. The base model
+    # has never seen the user's custom object, so its best guess on
+    # the same pixels (cell phone / toothbrush for an IQOS, etc.) is
+    # wrong by definition once the custom model has fired. Keep base
+    # detections that don't overlap any custom — those are real COCO
+    # objects elsewhere in the frame.
+    customs = [d for d in detections if d.get("source") != "base"]
+    if customs:
+        deduped = list(customs)
+        for d in detections:
+            if d.get("source") != "base":
+                continue
+            if any(_iou(d["box"], c["box"]) >= _SUPPRESS_IOU for c in customs):
+                continue
+            deduped.append(d)
+        detections = deduped
 
     return {
         "detections": detections,
