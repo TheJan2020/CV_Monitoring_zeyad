@@ -33,6 +33,7 @@
     <div class="cd-stats">
       <div class="cd-stat"><span class="cd-stat-k">Posture</span><span class="cd-stat-v" id="posture">—</span></div>
       <div class="cd-stat"><span class="cd-stat-k">Motion</span><span class="cd-stat-v" id="motion">—</span></div>
+      <div class="cd-stat"><span class="cd-stat-k">Crib motion</span><span class="cd-stat-v" id="cribmotion">—</span></div>
       <div class="cd-stat"><span class="cd-stat-k">Persons</span><span class="cd-stat-v" id="persons">—</span></div>
       <div class="cd-stat"><span class="cd-stat-k">FPS</span><span class="cd-stat-v" id="fps">—</span></div>
       <div class="cd-stat"><span class="cd-stat-k">Still for</span><span class="cd-stat-v" id="still">—</span></div>
@@ -175,12 +176,27 @@ async function poll() {
     actEl.textContent = ACTIVITY_LABEL[act] || act.replace(/_/g, " ");
 
     let sub = "";
-    if (act === "asleep") sub = `lying still for ${fmtSec(s.still_seconds)}`;
+    if (act === "in_crib") sub = "baby detected inside the crib";
+    else if (act === "out_of_frame") sub = "no baby detected";
+    // Legacy 5-state values, only seen on snapshots from before 06-05.
+    else if (act === "asleep") sub = `lying still for ${fmtSec(s.still_seconds)}`;
     else if (act === "lying") sub = "lying down — needs more stillness for asleep";
     else if (act === "sitting") sub = "upright, calm";
     else if (act === "moving_a_lot") sub = "high motion or upright movement";
-    else if (act === "out_of_frame") sub = "no detection";
     document.getElementById("activity-sub").textContent = sub;
+
+    // Crib motion — gated on baby being in the crib. The worker emits
+    // 'undetected' whenever the tracker has no lock; treat that as "—"
+    // so the stat doesn't display a noisy value while the baby is out.
+    const cribEl = document.getElementById("cribmotion");
+    const cm = s.crib_motion || "undetected";
+    if (cm === "undetected") {
+      cribEl.textContent = "—";
+      cribEl.className = "cd-stat-v";
+    } else {
+      cribEl.textContent = cm === "still" ? "Still" : "Moving";
+      cribEl.className = "cd-stat-v cribmotion-" + cm;
+    }
 
     // Posture & motion are computed by the PoseStateTracker on whatever
     // keypoints the pose model emitted this frame — independent of the

@@ -374,6 +374,19 @@ def main() -> None:
         frame_iter = poll_frames(base, camera, fps=fps)
 
     prev_t = time.perf_counter()
+    # Crib-motion estimator: when the BabyTracker is LOCKED, we sample
+    # the locked region, downsample to a fixed 64x64 grayscale, and
+    # compare frame-to-frame mean absolute pixel difference. EMA-smoothed
+    # to avoid flicker at the threshold. Reset whenever the lock drops
+    # so we don't compare across totally different content.
+    _last_crib_crop = None
+    _crib_motion_smoothed = 0.0
+    # Tuned conservatively: a sleeping baby on a static camera shows
+    # ~0.01 mean diff from breathing + sensor noise; an actively
+    # fidgeting baby shows 0.04+; an adult walking through the crop is
+    # well over 0.10. Threshold 0.025 puts the boundary above sensor
+    # noise but well below 'active fidget'.
+    CRIB_MOTION_THRESHOLD = 0.025
     with mp_pose_ctx as mp_pose_inst:
         for frame in frame_iter:
             t0 = time.perf_counter()
@@ -965,10 +978,51 @@ def main() -> None:
                     wrist_mouse_overlaps=wrist_mouse_overlaps,
                     minimal=not show_explain_overlay(),
                 )
+                # Crib-motion signal — only meaningful when the baby is
+                # in the crib. Sample the locked region, downscale to 64x64
+                # grayscale, compare to previous via mean abs pixel diff,
+                # smooth with EMA, threshold to still / moving. Reset when
+                # the lock drops so we never carry stale state across an
+                # out-of-frame window.
+                crib_motion_value = "undetected"
+                if (
+                    baby_tracker is not None
+                    and baby_lock is not None
+                    and frame is not None
+                ):
+                    try:
+                        h_f, w_f = frame.shape[:2]
+                        bx1 = max(0, baby_lock.x1)
+                        by1 = max(0, baby_lock.y1)
+                        bx2 = min(w_f, baby_lock.x2)
+                        by2 = min(h_f, baby_lock.y2)
+                        if bx2 - bx1 >= 24 and by2 - by1 >= 24:
+                            crop = frame[by1:by2, bx1:bx2]
+                            crop = cv2.resize(crop, (64, 64))
+                            crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                            if _last_crib_crop is not None:
+                                diff = cv2.absdiff(crop_gray, _last_crib_crop)
+                                score = float(diff.mean()) / 255.0
+                                _crib_motion_smoothed = (
+                                    0.7 * _crib_motion_smoothed + 0.3 * score
+                                )
+                                crib_motion_value = (
+                                    "moving" if _crib_motion_smoothed > CRIB_MOTION_THRESHOLD
+                                    else "still"
+                                )
+                            _last_crib_crop = crop_gray
+                    except Exception:
+                        # Diff errors should never take the worker down —
+                        # fall back to undetected for this frame.
+                        crib_motion_value = "undetected"
+                else:
+                    _last_crib_crop = None
+                    _crib_motion_smoothed = 0.0
+
                 if args.web:
                     fps_now = 1.0 / dt if dt > 0 else 0.0
-                    # In baby mode, the simplified 5-state activity from the
-                    # tracker is what the dashboard / timeline cares about.
+                    # In baby mode the tracker emits in_crib / out_of_frame;
+                    # general-mode worker stays on the pose-based 5-state.
                     activity_value = (
                         baby_tracker.activity if baby_tracker is not None
                         else pose_state.activity
@@ -987,6 +1041,13 @@ def main() -> None:
                         ),
                         "posture": pose_state.posture.value,
                         "motion": pose_state.motion.value,
+                        # Crib-motion: only emitted on baby cameras and
+                        # only meaningful while the baby is in the crib.
+                        # 'still' / 'moving' when locked, 'undetected'
+                        # otherwise. Computed from a frame-diff on the
+                        # locked bbox region — no pose model required.
+                        "crib_motion": crib_motion_value,
+                        "crib_motion_score": round(float(_crib_motion_smoothed), 4),
                         "motion_score": float(pose_state.motion_score),
                         "still_seconds": float(pose_state.still_seconds),
                         "posture_angle_deg": float(pose_state.posture_angle_deg),

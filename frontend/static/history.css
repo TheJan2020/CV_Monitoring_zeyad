@@ -1014,6 +1014,9 @@
 .pill-act-running       { background: rgba(99, 167, 220, 0.16); color: #6ba9e0; }
 .pill-act-out_of_frame  { background: rgba(226, 48, 71, 0.16); color: var(--error); }
 
+.pill-cribmotion-still  { background: rgba(11, 176, 186, 0.16); color: var(--accent); }
+.pill-cribmotion-moving { background: rgba(240, 138, 31, 0.16); color: #f08a1f; }
+
 .lb-close {
   position: absolute;
   top: 14px;

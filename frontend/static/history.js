@@ -965,6 +965,14 @@ function renderParams(state) {
   };
   const activity = state.activity;
   push("Activity",  activity ? (ACTIVITY_LABEL[activity] || activity) : null, activity ? `pill-act-${activity}` : "");
+  // Crib motion is only meaningful while the baby is in the crib;
+  // 'undetected' is the worker's signal that there's no lock, so we
+  // hide it rather than show a meaningless value.
+  if (state.crib_motion && state.crib_motion !== "undetected") {
+    const cm = state.crib_motion;
+    push("Crib motion", cm === "still" ? "Still" : "Moving",
+         cm === "still" ? "pill-cribmotion-still" : "pill-cribmotion-moving");
+  }
   push("Posture",   state.posture ? (POSTURE_LABEL[state.posture] || state.posture) : null);
   push("Motion",    state.motion ? (MOTION_LABEL[state.motion] || state.motion) : null);
   push("Persons",   state.person_count);

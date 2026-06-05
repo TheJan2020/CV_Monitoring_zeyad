@@ -886,6 +886,9 @@ function renderParamsSum(state) {
       </div>`);
   };
   push("Activity",  state.activity);
+  if (state.crib_motion && state.crib_motion !== "undetected") {
+    push("Crib motion", state.crib_motion === "still" ? "Still" : "Moving");
+  }
   push("Posture",   state.posture);
   push("Motion",    state.motion);
   push("Persons",   state.person_count);
