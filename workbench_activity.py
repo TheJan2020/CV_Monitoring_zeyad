@@ -586,7 +586,19 @@ def main() -> None:
             # Previously this filter only gatekeeps person_evidence going
             # into the BabyTracker, so even though the lock didn't form,
             # the underlying YoloDetection still drew on the stream.
-            if baby_tracker is not None:
+            # IMPORTANT (regression fix 2026-06-05): the pose-corroboration
+            # filter below ONLY runs when the pose model is loaded. The
+            # earlier Phase 1 change that disabled pose on baby cams (to
+            # save GPU) had no guard here, so the filter still ran with
+            # zero credible poses, fell into the NO_POSE_CONF_FLOOR=0.92
+            # branch, and dropped every cam_1_v3 baby detection at
+            # conf 0.5-0.7. Result: nothing reached the tracker, no lock
+            # ever formed, the system reported 'out_of_frame' for hours
+            # while the baby was right there. Keeping the filter guarded
+            # on enable_pose so when pose is intentionally off, the
+            # fine-tune model's own confidence threshold + the YOLO ROI
+            # filter are trusted directly.
+            if baby_tracker is not None and enable_pose:
                 # Pose-corroboration filter — THREE-tier confidence floor
                 # (added 2026-06-01 after analysing 999 incorrect labels
                 # from one day on this camera):
