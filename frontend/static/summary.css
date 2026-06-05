@@ -323,6 +323,31 @@
 .sum-thumb.snap-act-out_of_frame  { border-color: var(--error); }
 .sum-thumb.snap-act-in_crib       { border-color: var(--success); }
 
+/* Operator-drew-a-box badge on Summary thumbs. */
+.sum-thumb-drawn {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: var(--success);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  z-index: 3;
+  pointer-events: none;
+}
+.sum-thumb.sum-thumb-has-drawn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(24, 160, 82, 0.55);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
 /* Subtle pulse on no-baby thumbs (matches History glow). */
 .sum-thumb.snap-act-out_of_frame {
   animation: sum-redborder-pulse 2.4s ease-in-out infinite;

@@ -813,11 +813,17 @@ function renderPeriodThumbs(period) {
       : s.label === "incorrect"
         ? '<span class="sum-thumb-label sum-thumb-label-incorrect" title="You marked incorrect (flips the bed bucket)">✗</span>'
         : "";
+    const hasDrawn = Array.isArray(s.correction_boxes) && s.correction_boxes.length > 0;
+    const drawnDot = hasDrawn
+      ? '<span class="sum-thumb-drawn" title="Operator-drawn box on this snapshot (training signal)">▢</span>'
+      : "";
+    const tipDrawn = hasDrawn ? " · operator-drawn box" : "";
     return `
-      <div class="sum-thumb${actCls}${labelCls}" data-snap-id="${s.id}" role="button" tabindex="0"
-         title="${fmtClock(s.captured_at)}${act ? " · " + act : ""}${s.label ? " · labeled " + s.label : ""}">
+      <div class="sum-thumb${actCls}${labelCls}${hasDrawn ? " sum-thumb-has-drawn" : ""}" data-snap-id="${s.id}" role="button" tabindex="0"
+         title="${fmtClock(s.captured_at)}${act ? " · " + act : ""}${s.label ? " · labeled " + s.label : ""}${tipDrawn}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         ${labelDot}
+        ${drawnDot}
         <span class="sum-thumb-time">${fmtClock(s.captured_at)}</span>
       </div>`;
   }).join("");
@@ -936,23 +942,52 @@ function openLightbox(snap) {
   lightbox.classList.remove("hidden");
 }
 
-function syncCorrectionVisibilitySum() {
-  const root = document.getElementById("lb-correction");
-  if (!root || !_openSnap) return;
-  const act = (_openSnap.state && _openSnap.state.activity) || "";
-  if (_openSnap.label === "incorrect" && act === "out_of_frame") {
-    LbCorrection.show(_openSnap);
-  } else {
-    LbCorrection.hide();
+// Cross-tab refresh: the standalone correction page writes to this
+// localStorage key on save, picked up here so we update the affected
+// thumb's badge live.
+window.addEventListener("storage", (e) => {
+  if (e.key !== "primeanalyze.snapshotCorrectionSaved" || !e.newValue) return;
+  let payload;
+  try { payload = JSON.parse(e.newValue); } catch { return; }
+  if (!payload || payload.snap_id == null) return;
+  const id = Number(payload.snap_id);
+  const inStore = _snapshots.find((s) => s.id === id);
+  if (inStore) inStore.correction_boxes = payload.box_count ? [[0, 0, 0, 0]] : [];
+  const nodes = document.querySelectorAll(`.sum-thumb[data-snap-id="${id}"]`);
+  nodes.forEach((n) => {
+    const has = payload.box_count > 0;
+    n.classList.toggle("sum-thumb-has-drawn", has);
+    let dot = n.querySelector(".sum-thumb-drawn");
+    if (has && !dot) {
+      dot = document.createElement("span");
+      dot.className = "sum-thumb-drawn";
+      dot.title = "Operator-drawn box on this snapshot (training signal)";
+      dot.textContent = "▢";
+      n.insertBefore(dot, n.querySelector(".sum-thumb-time"));
+    } else if (!has && dot) {
+      dot.remove();
+    }
+  });
+  if (_openSnap && _openSnap.id === id) {
+    _openSnap.correction_boxes = payload.box_count ? [[0, 0, 0, 0]] : [];
+    syncCorrectionVisibilitySum();
   }
-}
-
-LbCorrection.attach({
-  onSaved: (snap, boxes) => {
-    const inStore = _snapshots.find((s) => s.id === snap.id);
-    if (inStore) inStore.correction_boxes = boxes;
-  },
 });
+
+function syncCorrectionVisibilitySum() {
+  const cta = document.getElementById("lb-correction-cta");
+  if (!cta || !_openSnap) return;
+  const act = (_openSnap.state && _openSnap.state.activity) || "";
+  const eligible = _openSnap.label === "incorrect" && act === "out_of_frame";
+  cta.hidden = !eligible;
+  if (!eligible) return;
+  const link = document.getElementById("lb-correction-open");
+  link.href = `/snapshot/${_openSnap.id}/correct`;
+  const existing = document.getElementById("lb-correction-existing");
+  const has = Array.isArray(_openSnap.correction_boxes) && _openSnap.correction_boxes.length > 0;
+  existing.hidden = !has;
+  link.textContent = has ? "↗ Adjust drawn box (new tab)" : "↗ Draw box (new tab)";
+}
 
 document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
   el.addEventListener("click", () => setLightboxTab(el.dataset.tab)),

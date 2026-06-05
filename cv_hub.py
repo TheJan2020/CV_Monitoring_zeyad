@@ -2119,6 +2119,15 @@ def api_get_snapshot_correction(snap_id):
     return jsonify({"boxes": state_recorder.get_snapshot_correction(snap_id)})
 
 
+@app.route("/api/snapshots/<int:snap_id>", methods=["GET"])
+def api_get_snapshot(snap_id):
+    """Single-snapshot fetch used by the standalone correction page."""
+    info = state_recorder.get_snapshot_by_id(snap_id)
+    if info is None:
+        return jsonify({"error": "snapshot not found"}), 404
+    return jsonify(info)
+
+
 @app.route("/api/snapshots/<int:snap_id>/label", methods=["PATCH"])
 def api_set_snapshot_label(snap_id):
     """Set or clear an operator label on a saved snapshot.

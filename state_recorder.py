@@ -222,6 +222,42 @@ def set_snapshot_correction(snapshot_id: int, boxes: list[list[float]] | None) -
         return cur.rowcount > 0
 
 
+def get_snapshot_by_id(snapshot_id: int) -> dict | None:
+    """Single-snapshot lookup for the standalone correction page.
+    Returns the same shape as get_snapshots() rows, or None on miss."""
+    with _LOCK:
+        db = _open()
+        r = db.execute(
+            "SELECT id, captured_at, file_rel, state_json, clip_rel, label, "
+            "correction_json, camera_id "
+            "FROM snapshots WHERE id = ?",
+            (snapshot_id,),
+        ).fetchone()
+    if not r:
+        return None
+    item: dict = {
+        "id": r[0],
+        "captured_at": r[1],
+        "file_rel": r[2],
+        "state": None,
+        "clip_rel": r[4],
+        "label": r[5],
+        "correction_boxes": [],
+        "camera_id": r[7],
+    }
+    if r[3]:
+        try:
+            item["state"] = json.loads(r[3])
+        except json.JSONDecodeError:
+            pass
+    if r[6]:
+        try:
+            item["correction_boxes"] = json.loads(r[6])
+        except json.JSONDecodeError:
+            pass
+    return item
+
+
 def get_snapshot_correction(snapshot_id: int) -> list[list[float]]:
     """Read the operator-drawn boxes for a snapshot. Empty list when
     nothing has been drawn."""

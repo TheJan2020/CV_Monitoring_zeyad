@@ -304,6 +304,31 @@ def api_history(cam_id):
     return jsonify({"error": (body or {}).get("error") or f"hub status {status}"}), status or 502
 
 
+@app.route("/snapshot/<int:snap_id>/correct")
+def snapshot_correct_page(snap_id):
+    return render_template(
+        "snapshot_correct.html",
+        user=session["user"],
+        snap_id=snap_id,
+    )
+
+
+@app.route("/api/snapshots/<int:snap_id>", methods=["GET"])
+def api_get_snapshot_proxy(snap_id):
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+    from flask import Response
+    target = f"http://127.0.0.1:8000/api/snapshots/{snap_id}"
+    try:
+        with urlopen(Request(target, method="GET"), timeout=10) as r:
+            return Response(r.read(), mimetype="application/json", status=r.status)
+    except HTTPError as e:
+        return Response(e.read() or b'{"error":"hub error"}',
+                        mimetype="application/json", status=e.code)
+    except URLError as e:
+        return jsonify({"error": f"hub unreachable: {e.reason}"}), 503
+
+
 @app.route("/api/snapshots/<int:snap_id>/correction", methods=["GET", "PUT"])
 def api_snapshot_correction_proxy(snap_id):
     from urllib.request import Request, urlopen

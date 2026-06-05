@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Correct snapshot — PrimeAnalyze{% endblock %}
+{% block page_title %}<span id="sc-title">Draw the baby's location</span>{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='snapshot_correct.css') }}">
+
+<section class="hist-section sc-section" data-snap-id="{{ snap_id }}">
+  <div class="sc-toolbar">
+    <span class="sc-meta" id="sc-meta">Loading…</span>
+    <span class="sc-spacer"></span>
+    <button class="btn btn-secondary" id="sc-clear">Clear box</button>
+    <button class="btn" id="sc-save">Save correction</button>
+    <button class="btn btn-secondary" id="sc-close">Done — close tab</button>
+  </div>
+
+  <p class="muted sc-help">
+    Click and drag on the snapshot to draw a box around where the baby
+    actually was. This is a high-value training signal — the model
+    will use it on the next re-train to learn the cases it currently
+    misses. One box per snapshot; drawing again replaces the previous.
+  </p>
+
+  <div class="sc-stage" id="sc-stage">
+    <img id="sc-img" alt="">
+    <canvas id="sc-canvas"></canvas>
+  </div>
+
+  <p class="muted sc-status" id="sc-status"></p>
+</section>
+
+<script>window.__SNAP_ID = "{{ snap_id }}";</script>
+<script src="{{ url_for('static', filename='snapshot_correct.js') }}"></script>
+{% endblock %}

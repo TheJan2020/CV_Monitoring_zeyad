@@ -57,23 +57,17 @@
       Adults walking past the crib don't count — only the baby inside the crib.
     </p>
 
-    <!-- Correction stage: appears when the operator marks Incorrect on a
-         frame the system missed (out_of_frame). Drawing a box here tells
-         the re-train pipeline 'the baby was actually here'. -->
-    <div class="lb-correction" id="lb-correction" hidden>
-      <div class="lb-correction-head">
-        <strong>Draw where the baby actually is</strong>
-        <span class="muted">click and drag on the image · we save this as ground truth for the next re-train</span>
-      </div>
-      <div class="lb-correction-stage" id="lb-correction-stage">
-        <img id="lb-correction-img" alt="">
-        <canvas id="lb-correction-canvas"></canvas>
-      </div>
-      <div class="lb-correction-actions">
-        <button class="btn btn-secondary" id="lb-correction-clear">Clear box</button>
-        <button class="btn" id="lb-correction-save">Save correction</button>
-        <span class="muted" id="lb-correction-status"></span>
-      </div>
+    <!-- Correction CTA: appears when the operator marks Incorrect on a
+         frame the system missed (out_of_frame). Opens a dedicated
+         full-screen drawing page in a new tab so labeling and box-drawing
+         don't fight for the same modal real estate. -->
+    <div class="lb-correction-cta" id="lb-correction-cta" hidden>
+      <span class="lb-correction-prompt">
+        <strong>Tell the model where the baby was.</strong>
+        Draw a box on this snapshot so the next re-train uses it as ground truth.
+      </span>
+      <a class="btn" id="lb-correction-open" target="_blank" rel="noopener">↗ Draw box (new tab)</a>
+      <span class="muted" id="lb-correction-existing" hidden>Existing correction already drawn — click to adjust.</span>
     </div>
 
     <div class="lb-params" id="lb-params">
@@ -82,4 +76,3 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='lb_correction.js') }}"></script>

@@ -526,11 +526,16 @@ function renderSnapshots(snaps) {
       : s.label === "incorrect"
         ? '<span class="snap-label-dot snap-label-incorrect" title="Marked incorrect">✗</span>'
         : "";
+    const hasDrawn = Array.isArray(s.correction_boxes) && s.correction_boxes.length > 0;
+    const drawnDot = hasDrawn
+      ? '<span class="snap-drawn-dot" title="Operator-drawn box on this snapshot (training signal)">▢</span>'
+      : "";
     return `
-      <div class="snap-cell${actCls}${labelCls}" data-idx="${idx}" title="${actLabel}">
+      <div class="snap-cell${actCls}${labelCls}${hasDrawn ? " snap-drawn" : ""}" data-idx="${idx}" title="${actLabel}">
         <img loading="lazy" src="${url}" alt="${fmtClock(s.captured_at)}">
         ${clipDot}
         ${labelDot}
+        ${drawnDot}
         ${actLabel ? `<div class="snap-act-tag">${actLabel}</div>` : ""}
         <div class="snap-time">${fmtClock(s.captured_at)}</div>
       </div>`;
@@ -637,34 +642,65 @@ function openLightbox(snap) {
   lightbox.classList.remove("hidden");
 }
 
-// Show the draw-a-box correction stage when the operator has marked
-// this snapshot Incorrect AND the system said out_of_frame. In that
-// false-negative case the drawn box is the highest-value training
-// signal we can collect (the model was looking but missed). For false
-// positives — system saw a baby that wasn't there — there's nothing
-// to draw; clearing or flipping the label is enough.
-function syncCorrectionVisibility() {
-  const root = document.getElementById("lb-correction");
-  if (!root || !_openSnap) return;
-  const act = (_openSnap.state && _openSnap.state.activity) || "";
-  const eligible = _openSnap.label === "incorrect" && act === "out_of_frame";
-  if (eligible) {
-    LbCorrection.show(_openSnap);
-  } else {
-    LbCorrection.hide();
+// Reveal a CTA in the lightbox that opens the dedicated draw-box page
+// in a new tab when the operator has marked Incorrect on an
+// out_of_frame snapshot. The drawing UI lives on a standalone
+// /snapshot/<id>/correct page so it isn't fighting the lightbox modal
+// for screen real estate.
+// When the standalone correction page saves, it pokes a localStorage
+// key — picked up here so the affected snapshot's badge updates without
+// requiring a full page refresh.
+window.addEventListener("storage", (e) => {
+  if (e.key !== "primeanalyze.snapshotCorrectionSaved" || !e.newValue) return;
+  let payload;
+  try { payload = JSON.parse(e.newValue); } catch { return; }
+  if (!payload || payload.snap_id == null) return;
+  const id = Number(payload.snap_id);
+  for (const arr of [_currentSnaps, _allSnapsForFilter]) {
+    const m = arr.find((s) => s.id === id);
+    if (m) m.correction_boxes = payload.box_count ? [[0, 0, 0, 0]] : [];
+  }
+  refreshSnapDrawnBadge(id);
+  if (_openSnap && _openSnap.id === id) {
+    _openSnap.correction_boxes = payload.box_count ? [[0, 0, 0, 0]] : [];
+    syncCorrectionVisibility();
+  }
+});
+
+function refreshSnapDrawnBadge(id) {
+  const idx = _currentSnaps.findIndex((s) => s.id === id);
+  if (idx < 0) return;
+  const cell = snapGrid.querySelector(`.snap-cell[data-idx="${idx}"]`);
+  if (!cell) return;
+  const has = Array.isArray(_currentSnaps[idx].correction_boxes)
+              && _currentSnaps[idx].correction_boxes.length > 0;
+  cell.classList.toggle("snap-drawn", has);
+  let dot = cell.querySelector(".snap-drawn-dot");
+  if (has && !dot) {
+    dot = document.createElement("span");
+    dot.className = "snap-drawn-dot";
+    dot.title = "Operator-drawn box on this snapshot (training signal)";
+    dot.textContent = "▢";
+    cell.appendChild(dot);
+  } else if (!has && dot) {
+    dot.remove();
   }
 }
 
-LbCorrection.attach({
-  onSaved: (snap, boxes) => {
-    // Persist into the in-memory grid copies so re-renders keep the
-    // correction visible without refetching.
-    for (const arr of [_currentSnaps, _allSnapsForFilter]) {
-      const m = arr.find((s) => s.id === snap.id);
-      if (m) m.correction_boxes = boxes;
-    }
-  },
-});
+function syncCorrectionVisibility() {
+  const cta = document.getElementById("lb-correction-cta");
+  if (!cta || !_openSnap) return;
+  const act = (_openSnap.state && _openSnap.state.activity) || "";
+  const eligible = _openSnap.label === "incorrect" && act === "out_of_frame";
+  cta.hidden = !eligible;
+  if (!eligible) return;
+  const link = document.getElementById("lb-correction-open");
+  link.href = `/snapshot/${_openSnap.id}/correct`;
+  const existing = document.getElementById("lb-correction-existing");
+  const has = Array.isArray(_openSnap.correction_boxes) && _openSnap.correction_boxes.length > 0;
+  existing.hidden = !has;
+  link.textContent = has ? "↗ Adjust drawn box (new tab)" : "↗ Draw box (new tab)";
+}
 
 // Tab click handlers (set up once).
 document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
