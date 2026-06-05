@@ -321,6 +321,7 @@
 .sum-thumb.snap-act-walking,
 .sum-thumb.snap-act-running       { border-color: #6ba9e0; }
 .sum-thumb.snap-act-out_of_frame  { border-color: var(--error); }
+.sum-thumb.snap-act-in_crib       { border-color: var(--success); }
 
 /* Subtle pulse on no-baby thumbs (matches History glow). */
 .sum-thumb.snap-act-out_of_frame {

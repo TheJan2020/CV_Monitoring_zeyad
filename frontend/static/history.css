@@ -422,6 +422,7 @@
 .snap-cell.snap-act-walking,
 .snap-cell.snap-act-running       { border-color: #6ba9e0; } /* light blue */
 .snap-cell.snap-act-out_of_frame  { border-color: var(--error); } /* red — no baby */
+.snap-cell.snap-act-in_crib       { border-color: var(--success); } /* green — baby in crib */
 
 /* Subtle pulsing glow on red-bordered cells so "no baby" frames are
    easy to spot as you scroll. drop-shadow plays nicely with the

@@ -1,8 +1,12 @@
 // History page — 3 timeline tracks + snapshot gallery (baby cameras only).
 
 const ACTIVITY_LABEL = {
+  in_crib: "In crib", out_of_frame: "Out of frame",
+  // Legacy values — only seen on snapshots captured before the
+  // 06-05 simplification. New snapshots only emit in_crib /
+  // out_of_frame.
   asleep: "Asleep", lying: "Lying", sitting: "Sitting",
-  moving_a_lot: "Moving a lot", out_of_frame: "Out of frame",
+  moving_a_lot: "Moving a lot",
   resting: "Resting", fidgeting: "Fidgeting", restless: "Restless",
   sitting_calm: "Sitting calm", playing: "Playing", very_active: "Very active",
   standing: "Standing", walking: "Walking", running: "Running",

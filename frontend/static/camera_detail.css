@@ -104,7 +104,8 @@
 .act-standing,
 .act-walking,
 .act-running       { background: rgba(11, 176, 186, 0.10); color: var(--accent); }
-.act-out_of_frame  { background: rgba(154, 154, 166, 0.10); color: var(--text-dim); }
+.act-out_of_frame  { background: rgba(226, 48, 71, 0.14); color: var(--error); }
+.act-in_crib       { background: rgba(24, 160, 82, 0.16); color: var(--success); }
 
 [data-theme="dark"] .act-asleep        { background: rgba(124, 90, 240, 0.15); color: #9ab0ff; }
 [data-theme="dark"] .act-resting,
