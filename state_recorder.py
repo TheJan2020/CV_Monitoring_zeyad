@@ -278,17 +278,28 @@ def snapshot_stats(camera_id: str | None = None) -> dict:
         # hasn't yet drawn a correction box on. These are the
         # highest-value training samples — the model was looking and
         # missed, and the operator's drawn box would be ground truth.
-        # We can't filter on the JSON activity field directly without
-        # json_extract, which is reliable on SQLite ≥3.38 — fall back
-        # to a string LIKE match which is fine because the activity
-        # value is a short fixed token.
-        corrections_pending = db.execute(
-            f"SELECT COUNT(*) FROM snapshots "
-            f"WHERE {where} AND label = 'incorrect' "
-            f"AND state_json LIKE '%\"activity\":\"out_of_frame\"%' "
-            f"AND (correction_json IS NULL OR correction_json IN ('[]', 'null'))",
-            args,
-        ).fetchone()[0]
+        # Prefer SQLite's json_extract when available (3.38+, which
+        # the bundled Windows sqlite3 module is on); fall back to a
+        # double LIKE that handles both Python's default ', '/': '
+        # json.dumps spacing AND the compact no-space form just in
+        # case some legacy rows were written with separators=(',', ':').
+        try:
+            corrections_pending = db.execute(
+                f"SELECT COUNT(*) FROM snapshots "
+                f"WHERE {where} AND label = 'incorrect' "
+                f"AND json_extract(state_json, '$.activity') = 'out_of_frame' "
+                f"AND (correction_json IS NULL OR correction_json IN ('[]', 'null'))",
+                args,
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            corrections_pending = db.execute(
+                f"SELECT COUNT(*) FROM snapshots "
+                f"WHERE {where} AND label = 'incorrect' "
+                f"AND (state_json LIKE '%\"activity\": \"out_of_frame\"%' "
+                f"     OR state_json LIKE '%\"activity\":\"out_of_frame\"%') "
+                f"AND (correction_json IS NULL OR correction_json IN ('[]', 'null'))",
+                args,
+            ).fetchone()[0]
     return {
         "total": total,
         "scored": scored,
