@@ -876,6 +876,9 @@ function setLightboxTab(name) {
     const clipEl = document.getElementById("lb-clip");
     try { if (clipEl) clipEl.pause(); } catch (e) {}
   }
+  if (name === "draw" && _openSnap) {
+    LbDraw.show(_openSnap);
+  }
 }
 
 function renderParamsSum(state) {
@@ -975,19 +978,27 @@ window.addEventListener("storage", (e) => {
 });
 
 function syncCorrectionVisibilitySum() {
-  const cta = document.getElementById("lb-correction-cta");
-  if (!cta || !_openSnap) return;
+  const tab = document.getElementById("lb-tab-draw");
+  if (!tab || !_openSnap) return;
   const act = (_openSnap.state && _openSnap.state.activity) || "";
   const eligible = _openSnap.label === "incorrect" && act === "out_of_frame";
-  cta.hidden = !eligible;
-  if (!eligible) return;
-  const link = document.getElementById("lb-correction-open");
-  link.href = `/snapshot/${_openSnap.id}/correct`;
-  const existing = document.getElementById("lb-correction-existing");
+  tab.hidden = !eligible;
   const has = Array.isArray(_openSnap.correction_boxes) && _openSnap.correction_boxes.length > 0;
-  existing.hidden = !has;
-  link.textContent = has ? "↗ Adjust drawn box (new tab)" : "↗ Draw box (new tab)";
+  tab.textContent = has ? "Draw box ✓" : "Draw box";
+  tab.title = has
+    ? "An operator box is already saved — switch here to adjust"
+    : "Switch here to draw where the baby actually is";
+  if (!eligible && tab.classList.contains("active")) {
+    setLightboxTab("images");
+  }
 }
+LbDraw.attach({
+  onSaved: (snap, boxes) => {
+    const inStore = _snapshots.find((s) => s.id === snap.id);
+    if (inStore) inStore.correction_boxes = boxes;
+    syncCorrectionVisibilitySum();
+  },
+});
 
 document.querySelectorAll("#lightbox .lb-tab").forEach((el) =>
   el.addEventListener("click", () => setLightboxTab(el.dataset.tab)),

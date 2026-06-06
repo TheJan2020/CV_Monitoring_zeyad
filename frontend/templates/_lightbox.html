@@ -12,6 +12,7 @@
       <div class="lb-tabs" role="tablist">
         <button class="lb-tab active" type="button" data-tab="images" role="tab">Images</button>
         <button class="lb-tab" type="button" data-tab="video" role="tab" id="lb-tab-video">Video</button>
+        <button class="lb-tab" type="button" data-tab="draw" role="tab" id="lb-tab-draw" hidden>Draw box</button>
       </div>
     </div>
 
@@ -42,6 +43,21 @@
       </div>
     </div>
 
+    <div class="lb-pane" data-pane="draw">
+      <div class="lb-label">Draw the baby's location
+        <span class="lb-sub">click + drag — single box, drawing again replaces it. Saved as a high-value training sample for the next re-train.</span>
+      </div>
+      <div class="lb-draw-stage" id="lb-draw-stage">
+        <img id="lb-draw-img" alt="">
+        <canvas id="lb-draw-canvas"></canvas>
+      </div>
+      <div class="lb-draw-row">
+        <button class="btn btn-secondary" id="lb-draw-clear">Clear box</button>
+        <button class="btn" id="lb-draw-save">Save correction</button>
+        <span class="muted" id="lb-draw-status"></span>
+      </div>
+    </div>
+
     <div class="lb-label-row" id="lb-label-row">
       <span class="lb-label-prompt">Was the system right?</span>
       <button type="button" class="lb-label-btn lb-label-correct"
@@ -57,22 +73,12 @@
       Adults walking past the crib don't count — only the baby inside the crib.
     </p>
 
-    <!-- Correction CTA: appears when the operator marks Incorrect on a
-         frame the system missed (out_of_frame). Opens a dedicated
-         full-screen drawing page in a new tab so labeling and box-drawing
-         don't fight for the same modal real estate. -->
-    <div class="lb-correction-cta" id="lb-correction-cta" hidden>
-      <span class="lb-correction-prompt">
-        <strong>Tell the model where the baby was.</strong>
-        Draw a box on this snapshot so the next re-train uses it as ground truth.
-      </span>
-      <a class="btn" id="lb-correction-open" target="_blank" rel="noopener">↗ Draw box (new tab)</a>
-      <span class="muted" id="lb-correction-existing" hidden>Existing correction already drawn — click to adjust.</span>
-    </div>
 
     <div class="lb-params" id="lb-params">
       <div class="muted">No parameters captured.</div>
     </div>
   </div>
 </div>
+
+<script src="{{ url_for('static', filename='lb_draw.js') }}"></script>
 

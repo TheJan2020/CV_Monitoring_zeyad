@@ -919,32 +919,44 @@
 }
 .lb-label-help strong { color: var(--text); font-weight: 600; }
 
-/* ----- correction CTA (replaces the inline draw stage; the actual
-   drawing happens on /snapshot/<id>/correct in a new tab) ----- */
-.lb-correction-cta {
+/* ----- Draw-box tab inside the lightbox ----- */
+#lb-tab-draw {
+  position: relative;
+  color: var(--success);
+}
+#lb-tab-draw[hidden] { display: none; }
+
+.lb-draw-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  user-select: none;
+  margin: 8px 0;
+}
+#lb-draw-img {
+  display: block;
+  max-width: 100%;
+  max-height: 64vh;
+  height: auto;
+  width: auto;
+}
+#lb-draw-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  cursor: crosshair;
+}
+.lb-draw-row {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  background: rgba(24, 160, 82, 0.08);
-  border-top: 1px dashed rgba(24, 160, 82, 0.4);
-  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
 }
-.lb-correction-cta[hidden] { display: none; }
-.lb-correction-prompt {
-  font-size: 12.5px;
-  flex: 1 1 320px;
-  line-height: 1.5;
-}
-.lb-correction-prompt strong { color: var(--text); font-weight: 600; }
-#lb-correction-open {
-  background: var(--success);
-  border-color: var(--success);
-  color: #fff;
-  white-space: nowrap;
-}
-#lb-correction-open:hover { filter: brightness(1.08); }
-#lb-correction-existing { font-size: 12px; }
+.lb-draw-row .muted { font-size: 12px; margin-left: 8px; }
 
 /* ----- 'operator drew a box' badge on snap-cell ----- */
 .snap-drawn-dot {
