@@ -171,6 +171,14 @@ async function poll() {
     const s = await r.json();
 
     const act = s.activity || "out_of_frame";
+    // Feed the snapshot-cycle widget. The second-pass poll() wrapper
+    // further down tried to do this but never actually ran — its
+    // assignment was masked because the line above already kicked off
+    // setInterval(poll, 800) which captured THIS function reference,
+    // not the wrapper. Symptom: the in/out meters stayed at 100%
+    // out_of_frame even when the top 'Current activity' pill read
+    // 'In Crib'. Setting it here keeps the widget honest.
+    window._lastSeenActivity = act;
     const actEl = document.getElementById("activity");
     actEl.className = "cd-activity act-" + act;
     actEl.textContent = ACTIVITY_LABEL[act] || act.replace(/_/g, " ");
@@ -517,7 +525,7 @@ poll = async function() {
 // 1 s tick for the cycle box — uses whatever activity the 800 ms poll
 // last cached. Separate from the main /state poll so we never double-
 // count when the network is slow.
-setInterval(() => cycRender(_lastSeenActivity), 1000);
+setInterval(() => cycRender(window._lastSeenActivity || "out_of_frame"), 1000);
 // Sync window-start from server every 5 s so a new snapshot save
 // resets the counters cleanly without waiting on the next minute mark.
 cycSyncFromHistory();
