@@ -30,6 +30,7 @@ import hub_client  # noqa: E402
 CATEGORY_TO_TYPE = {
     "baby": "baby",
     "worker": "general",
+    "event": "event",
 }
 TYPE_TO_CATEGORY = {v: k for k, v in CATEGORY_TO_TYPE.items()}
 
