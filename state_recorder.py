@@ -263,12 +263,23 @@ def snapshot_stats(camera_id: str | None = None) -> dict:
             args,
         ).fetchone()[0]
     scored = correct + incorrect
+    with _LOCK:
+        db = _open()
+        # Operator-drawn correction boxes — how many snapshots have one.
+        # NULL or empty-array JSON both count as 'none'.
+        corrections = db.execute(
+            f"SELECT COUNT(*) FROM snapshots "
+            f"WHERE {where} AND correction_json IS NOT NULL "
+            f"AND correction_json NOT IN ('[]', 'null')",
+            args,
+        ).fetchone()[0]
     return {
         "total": total,
         "scored": scored,
         "unscored": max(0, total - scored),
         "correct": correct,
         "incorrect": incorrect,
+        "corrections_drawn": corrections,
     }
 
 

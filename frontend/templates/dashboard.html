@@ -3,40 +3,97 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+
 <p class="muted">Welcome back, <b>{{ user }}</b>.</p>
 
-<div class="cards">
-  <div class="card">
-    <div class="card-header"><h3>Cameras</h3><span class="card-icon">◉</span></div>
-    <p class="big" id="card-camera-count">—</p>
-    <p class="sub"><a href="/cameras">Manage cameras ›</a></p>
+<section class="hist-section">
+  <h3 class="dash-section-title">System overview</h3>
+  <div class="dash-grid">
+    <div class="dash-card">
+      <div class="dash-card-k">Cameras</div>
+      <div class="dash-card-v" id="dash-cam-count">—</div>
+      <div class="dash-card-sub"><a href="/cameras">Manage cameras ›</a></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-k">Total snapshots</div>
+      <div class="dash-card-v" id="dash-snap-total">—</div>
+      <div class="dash-card-sub">across all cameras &amp; days</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-k">Labeled</div>
+      <div class="dash-card-v" id="dash-snap-scored">—</div>
+      <div class="dash-card-sub" id="dash-snap-scored-pct">—</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-k">Remaining to label</div>
+      <div class="dash-card-v" id="dash-snap-unscored">—</div>
+      <div class="dash-card-sub"><a href="/history">Open History ›</a></div>
+    </div>
+    <div class="dash-card dash-card-correct">
+      <div class="dash-card-k">Correct (operator confirmed)</div>
+      <div class="dash-card-v" id="dash-snap-correct">—</div>
+      <div class="dash-card-sub" id="dash-snap-correct-pct">—</div>
+    </div>
+    <div class="dash-card dash-card-incorrect">
+      <div class="dash-card-k">Incorrect (operator flipped)</div>
+      <div class="dash-card-v" id="dash-snap-incorrect">—</div>
+      <div class="dash-card-sub" id="dash-snap-incorrect-pct">—</div>
+    </div>
+    <div class="dash-card dash-card-accuracy">
+      <div class="dash-card-k">Current accuracy</div>
+      <div class="dash-card-v" id="dash-accuracy">—</div>
+      <div class="dash-card-sub" id="dash-accuracy-sub">correct ÷ labeled</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-k">Correction boxes drawn</div>
+      <div class="dash-card-v" id="dash-corrections">—</div>
+      <div class="dash-card-sub">high-value training signal</div>
+    </div>
   </div>
-  <div class="card">
-    <div class="card-header"><h3>Activity</h3><span class="card-icon">⟶</span></div>
-    <p class="big">—</p>
-    <p class="sub">Live state per camera</p>
-  </div>
-  <div class="card">
-    <div class="card-header"><h3>Timeline</h3><span class="card-icon">▤</span></div>
-    <p class="big">—</p>
-    <p class="sub">Today's recorded segments</p>
-  </div>
-  <div class="card">
-    <div class="card-header"><h3>Storage</h3><span class="card-icon">⌘</span></div>
-    <p class="big">—</p>
-    <p class="sub">Database + recordings</p>
-  </div>
-</div>
+</section>
 
-<div class="placeholder">
-  <h2>Welcome to PrimeAnalyze.</h2>
-  <p>Use the <b>Cameras</b> section to add and manage your camera feeds.</p>
-  <p>Toggle <b>light / dark theme</b> from the icon in the top-right.</p>
-</div>
-<script>
-fetch('/api/cameras').then(r => r.ok ? r.json() : []).then(d => {
-  const el = document.getElementById('card-camera-count');
-  if (Array.isArray(d)) el.textContent = d.length;
-}).catch(() => {});
-</script>
+<section class="hist-section">
+  <h3 class="dash-section-title">Labeling progress</h3>
+  <div class="dash-progress">
+    <div class="dash-progress-bar">
+      <div class="dash-progress-fill dash-progress-correct" id="dash-bar-correct"></div>
+      <div class="dash-progress-fill dash-progress-incorrect" id="dash-bar-incorrect"></div>
+      <div class="dash-progress-fill dash-progress-unscored" id="dash-bar-unscored"></div>
+    </div>
+    <div class="dash-progress-legend">
+      <span><span class="dot dot-correct"></span> correct</span>
+      <span><span class="dot dot-incorrect"></span> incorrect</span>
+      <span><span class="dot dot-unscored"></span> unlabeled</span>
+    </div>
+  </div>
+</section>
+
+<section class="hist-section">
+  <h3 class="dash-section-title">Training</h3>
+  <div class="dash-grid">
+    <div class="dash-card">
+      <div class="dash-card-k">Auto-retrain agent</div>
+      <div class="dash-card-v" id="dash-auto-state">—</div>
+      <div class="dash-card-sub" id="dash-auto-next">nightly at 03:00</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-k">Last iteration</div>
+      <div class="dash-card-v" id="dash-auto-last">—</div>
+      <div class="dash-card-sub" id="dash-auto-last-sub"><a href="/scheduled-training">Scheduled training ›</a></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-k">Last result</div>
+      <div class="dash-card-v" id="dash-auto-delta">—</div>
+      <div class="dash-card-sub" id="dash-auto-delta-sub">F1 vs prior model</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-k">Custom classes trained</div>
+      <div class="dash-card-v" id="dash-customs">—</div>
+      <div class="dash-card-sub"><a href="/classes">Manage classes ›</a></div>
+    </div>
+  </div>
+</section>
+
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
 {% endblock %}
