@@ -2505,6 +2505,73 @@ def api_classes_save_label(cid, img_id):
         return jsonify({"error": str(e)}), 400
 
 
+@app.route("/api/event-snapshots")
+def api_event_snapshots():
+    """List recent event-camera snapshots eligible for import into a
+    custom class. Query params:
+      camera_id   — required, the event camera id (e.g. 'dining_room')
+      cid         — required, the custom class id (so we can exclude
+                    already-imported snapshots)
+      hours       — lookback window in hours (default 24)
+      limit       — max rows (default 200)
+    """
+    import custom_classes as cc
+    cam_id = request.args.get("camera_id", "").strip()
+    cid = request.args.get("cid", "").strip()
+    hours = float(request.args.get("hours") or 24)
+    limit = int(request.args.get("limit") or 200)
+    if not cam_id or not cid:
+        return jsonify({"error": "camera_id and cid required"}), 400
+    since = time.time() - hours * 3600
+    exclude = cc.imported_snapshots(cid) if cc.get_class(cid) is not None else set()
+    rows = state_recorder.list_event_snapshots(cam_id, since, limit=limit,
+                                                exclude_ids=exclude)
+    return jsonify({
+        "available": rows,
+        "already_imported": len(exclude),
+    })
+
+
+@app.route("/api/custom-classes/<cid>/import-snapshots", methods=["POST"])
+def api_classes_import_snapshots(cid):
+    """Pull selected event-camera snapshots into this class. Body:
+      {"snapshot_ids": [int, ...]}
+    Reads each JPEG from disk, imports it via custom_classes.save_image,
+    and marks the snapshot as imported so the picker won't re-offer it.
+    """
+    import custom_classes as cc
+    if cc.get_class(cid) is None:
+        return jsonify({"error": "class not found"}), 404
+    body = request.get_json(silent=True) or {}
+    ids = [int(x) for x in (body.get("snapshot_ids") or [])]
+    if not ids:
+        return jsonify({"error": "no snapshot_ids"}), 400
+    saved, errors = [], []
+    seen = cc.imported_snapshots(cid)
+    for snap_id in ids:
+        if snap_id in seen:
+            continue
+        with state_recorder._LOCK:
+            db = state_recorder._open()
+            row = db.execute(
+                "SELECT file_rel FROM snapshots WHERE id=?", (snap_id,),
+            ).fetchone()
+        if not row:
+            errors.append({"snapshot_id": snap_id, "error": "not found"})
+            continue
+        path = state_recorder.snapshot_path(row[0])
+        if not path.exists():
+            errors.append({"snapshot_id": snap_id, "error": "file missing"})
+            continue
+        try:
+            jpeg = path.read_bytes()
+            rec = cc.import_event_snapshot(cid, snap_id, jpeg)
+            saved.append(rec)
+        except (ValueError, OSError) as e:
+            errors.append({"snapshot_id": snap_id, "error": str(e)})
+    return jsonify({"saved": saved, "errors": errors})
+
+
 @app.route("/api/custom-classes/<cid>/images/<img_id>/label", methods=["GET"])
 def api_classes_load_label(cid, img_id):
     import custom_classes as cc

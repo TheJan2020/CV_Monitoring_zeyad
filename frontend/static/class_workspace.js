@@ -252,6 +252,149 @@ document.addEventListener("keydown", (e) => {
 });
 window.addEventListener("pagehide", camStopFn);
 
+// ---- import from event cameras -------------------------------------------
+
+const evCamSel    = document.getElementById("cw-event-cam");
+const evHoursSel  = document.getElementById("cw-event-hours");
+const evLoadBtn   = document.getElementById("cw-event-load");
+const evStatus    = document.getElementById("cw-event-status");
+const evGrid      = document.getElementById("cw-event-grid");
+const evActions   = document.getElementById("cw-event-actions");
+const evSelCount  = document.getElementById("cw-event-selcount");
+const evSelAll    = document.getElementById("cw-event-selectall");
+const evSelNone   = document.getElementById("cw-event-selectnone");
+const evImport    = document.getElementById("cw-event-import");
+
+let evSelected = new Set();   // snapshot ids the user has ticked
+let evAvailable = [];         // {id, captured_at, file_rel, person_count}[]
+
+function evRenderGrid() {
+  evGrid.innerHTML = evAvailable.map((s) => `
+    <label class="cw-event-thumb" data-id="${s.id}">
+      <input type="checkbox" data-id="${s.id}" ${evSelected.has(s.id) ? "checked" : ""}>
+      <img src="/api/snapshots/${s.file_rel}" loading="lazy" alt="">
+      <span class="cw-event-meta">
+        ${new Date(s.captured_at * 1000).toLocaleString()}
+        ${s.person_count ? ` · ${s.person_count} person${s.person_count === 1 ? "" : "s"}` : ""}
+      </span>
+    </label>
+  `).join("");
+  evGrid.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener("change", (e) => {
+      const id = Number(cb.dataset.id);
+      if (cb.checked) evSelected.add(id);
+      else evSelected.delete(id);
+      updateSelCount();
+    });
+  });
+  updateSelCount();
+}
+function updateSelCount() {
+  evSelCount.textContent = `${evSelected.size} selected`;
+  evImport.disabled = evSelected.size === 0;
+}
+
+async function evLoadCameras() {
+  let cams = [];
+  try {
+    const r = await fetch("/api/cameras", { cache: "no-store" });
+    if (r.ok) cams = await r.json();
+  } catch (e) {}
+  const events = cams.filter((c) => (c.category || c.type) === "event");
+  if (events.length === 0) {
+    evStatus.textContent = "No event cameras configured. Add one via /cameras to start collecting snapshots.";
+    evLoadBtn.disabled = true;
+    return;
+  }
+  evCamSel.innerHTML = events.map((c) =>
+    `<option value="${c.id}">${c.name || c.id}</option>`
+  ).join("");
+}
+
+async function evLoadAvailable() {
+  const camId = evCamSel.value;
+  const hours = evHoursSel.value;
+  if (!camId) return;
+  evStatus.textContent = "Loading…";
+  evGrid.hidden = true;
+  evActions.hidden = true;
+  evSelected.clear();
+  try {
+    const r = await fetch(
+      `/api/event-snapshots?camera_id=${encodeURIComponent(camId)}`
+      + `&cid=${encodeURIComponent(CID)}`
+      + `&hours=${encodeURIComponent(hours)}`,
+      { cache: "no-store" });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      evStatus.textContent = "Load failed: " + (err.error || r.status);
+      return;
+    }
+    const data = await r.json();
+    evAvailable = data.available || [];
+    if (evAvailable.length === 0) {
+      const prior = data.already_imported || 0;
+      evStatus.textContent = prior > 0
+        ? `No new snapshots in this window (${prior} already imported).`
+        : "No snapshots captured in this window yet.";
+      return;
+    }
+    evStatus.textContent = `${evAvailable.length} new snapshot${evAvailable.length === 1 ? "" : "s"} ready to import.`;
+    evRenderGrid();
+    evGrid.hidden = false;
+    evActions.hidden = false;
+  } catch (e) {
+    evStatus.textContent = "Load failed: " + e.message;
+  }
+}
+
+evLoadBtn.addEventListener("click", evLoadAvailable);
+evCamSel.addEventListener("change", () => { /* hold until user clicks Load */ });
+
+evSelAll.addEventListener("click", () => {
+  evSelected = new Set(evAvailable.map((s) => s.id));
+  evRenderGrid();
+});
+evSelNone.addEventListener("click", () => {
+  evSelected.clear();
+  evRenderGrid();
+});
+
+evImport.addEventListener("click", async () => {
+  if (evSelected.size === 0) return;
+  const ids = [...evSelected];
+  evImport.disabled = true;
+  evStatus.textContent = `Importing ${ids.length}…`;
+  try {
+    const r = await fetch(
+      `/api/custom-classes/${encodeURIComponent(CID)}/import-snapshots`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshot_ids: ids }) },
+    );
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      evStatus.textContent = "Import failed: " + (err.error || r.status);
+      evImport.disabled = false;
+      return;
+    }
+    const data = await r.json();
+    const okN = (data.saved || []).length;
+    const errN = (data.errors || []).length;
+    evStatus.textContent = errN
+      ? `Imported ${okN}, skipped ${errN}.`
+      : `Imported ${okN}. They appear in the image grid below — label them and train.`;
+    // Re-load the available set so the imported ones disappear.
+    evSelected.clear();
+    evLoadAvailable();
+    refresh();
+  } catch (e) {
+    evStatus.textContent = "Import failed: " + e.message;
+    evImport.disabled = false;
+  }
+});
+
+evLoadCameras();
+
 btnDelete.addEventListener("click", async () => {
   if (!confirm("Delete this entire class and every image?\nThis cannot be undone.")) return;
   const r = await fetch(`/api/custom-classes/${encodeURIComponent(CID)}`, { method: "DELETE" });

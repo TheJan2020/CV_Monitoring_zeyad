@@ -245,6 +245,80 @@
 }
 .cw-cam-status { font-size: 12px; min-height: 14px; margin: 0; }
 
+/* ----- import from event-camera snapshots ----- */
+.cw-event-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.cw-event-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cw-event-pick select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+.cw-event-status { font-size: 12px; min-height: 14px; margin: 0 0 8px 0; }
+.cw-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.cw-event-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.cw-event-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cw-event-thumb input[type="checkbox"] {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 2;
+  accent-color: var(--accent);
+  transform: scale(1.2);
+}
+.cw-event-thumb input:checked ~ img { outline: 3px solid var(--accent); outline-offset: -3px; }
+.cw-event-meta {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 3px 6px;
+  font-size: 10px;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0,0,0,0.75));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cw-event-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.cw-event-actions .muted { margin-right: auto; font-size: 12px; }
+
 /* ----- bbox labeling page ----- */
 .cl-toolbar {
   display: flex;

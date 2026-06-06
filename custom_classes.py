@@ -174,6 +174,38 @@ def image_path(cid: str, img_id: str) -> Optional[Path]:
     return p if p.exists() else None
 
 
+def _imported_path(cid: str) -> Path:
+    return ROOT / cid / "imported_snapshots.json"
+
+
+def imported_snapshots(cid: str) -> set[int]:
+    """Snapshot IDs already pulled into this class via the event-camera
+    importer. Used to filter the picker so we don't show the same
+    frame twice."""
+    p = _imported_path(cid)
+    if not p.exists():
+        return set()
+    try:
+        return set(int(x) for x in json.loads(p.read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def import_event_snapshot(cid: str, snapshot_id: int,
+                          jpeg_bytes: bytes) -> dict:
+    """Add an event-camera snapshot to this class's image set and
+    record its ID as imported. The bytes come from the caller — we
+    don't reach into state_recorder here so this module stays a
+    self-contained image store."""
+    if get_class(cid) is None:
+        raise FileNotFoundError(cid)
+    rec = save_image(cid, jpeg_bytes)
+    seen = imported_snapshots(cid)
+    seen.add(int(snapshot_id))
+    _imported_path(cid).write_text(json.dumps(sorted(seen)), encoding="utf-8")
+    return {**rec, "snapshot_id": int(snapshot_id)}
+
+
 def delete_image(cid: str, img_id: str) -> bool:
     img = ROOT / cid / "images" / f"{img_id}.jpg"
     lbl = ROOT / cid / "labels" / f"{img_id}.txt"

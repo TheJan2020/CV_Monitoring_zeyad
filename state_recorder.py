@@ -424,6 +424,45 @@ def get_segments(camera_id: str, day: str) -> dict[str, list[dict]]:
     return grouped
 
 
+def list_event_snapshots(camera_id: str, since_ts: float,
+                         limit: int = 200,
+                         exclude_ids: set[int] | None = None) -> list[dict]:
+    """Recent snapshots from an event camera for the class importer.
+    Newest first, capped at ``limit``. ``exclude_ids`` is the set of
+    snapshot ids already imported into the target class — silently
+    dropped from the result so the picker isn't dominated by frames
+    the operator already handled."""
+    exclude_ids = exclude_ids or set()
+    with _LOCK:
+        db = _open()
+        rows = db.execute(
+            "SELECT id, captured_at, file_rel, state_json "
+            "FROM snapshots WHERE camera_id=? AND captured_at >= ? "
+            "ORDER BY captured_at DESC LIMIT ?",
+            (camera_id, since_ts, int(limit) + len(exclude_ids)),
+        ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        if r[0] in exclude_ids:
+            continue
+        item: dict = {
+            "id": r[0],
+            "captured_at": r[1],
+            "file_rel": r[2],
+            "person_count": 0,
+        }
+        if r[3]:
+            try:
+                st = json.loads(r[3])
+                item["person_count"] = int(st.get("person_count") or 0)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def get_snapshots(camera_id: str, day: str) -> list[dict]:
     start_dt = datetime.strptime(day, "%Y-%m-%d")
     end_dt = start_dt + timedelta(days=1)

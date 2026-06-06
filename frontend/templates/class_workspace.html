@@ -43,9 +43,32 @@
       <p class="cw-cam-status muted" id="cw-cam-status">Click Start, allow camera access, then aim and click Capture.</p>
     </div>
 
-    <div class="cw-source cw-coming-soon">
-      <h3>Pull from camera snapshots</h3>
-      <p class="muted">Coming in phase 2 — pick frames from baby-camera snapshots if the object appears there.</p>
+    <div class="cw-source" id="cw-source-event">
+      <h3>Pull from event-camera snapshots</h3>
+      <div class="cw-event-row">
+        <label class="cw-event-pick">
+          <span>Camera</span>
+          <select id="cw-event-cam"><option value="">— none —</option></select>
+        </label>
+        <label class="cw-event-pick">
+          <span>Last</span>
+          <select id="cw-event-hours">
+            <option value="24">24 hours</option>
+            <option value="72" selected>3 days</option>
+            <option value="168">7 days</option>
+            <option value="720">30 days</option>
+          </select>
+        </label>
+        <button class="btn btn-secondary" id="cw-event-load">Load</button>
+      </div>
+      <p class="cw-event-status muted" id="cw-event-status">Pick an event camera and click Load to see captures.</p>
+      <div id="cw-event-grid" class="cw-event-grid" hidden></div>
+      <div class="cw-event-actions" id="cw-event-actions" hidden>
+        <span class="muted" id="cw-event-selcount">0 selected</span>
+        <button class="btn btn-secondary" id="cw-event-selectall">Select all</button>
+        <button class="btn btn-secondary" id="cw-event-selectnone">Select none</button>
+        <button class="btn" id="cw-event-import">Import selected</button>
+      </div>
     </div>
   </div>
 
