@@ -1093,6 +1093,14 @@ async function labelSnapshotSum(value) {
       body: JSON.stringify({ label: newLabel }),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    // Label affects bed-state attribution — re-derive the bed segments,
+    // period rows, and day totals so the timeline + summary reflect the
+    // correction immediately, not just the thumbnail border.
+    render({ snapshots: _snapshots, date: currentDate });
+    // Invalidate the overview cache for this day so the per-row
+    // Labeled / Accuracy counters refresh when the user clicks
+    // 'All days' instead of showing the pre-edit numbers.
+    _overviewCache.delete(currentDate);
   } catch (e) {
     _openSnap.label = prev;
     if (inStore) inStore.label = prev;
