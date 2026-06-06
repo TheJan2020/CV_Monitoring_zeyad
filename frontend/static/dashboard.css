@@ -46,6 +46,10 @@
 .dash-card-correct .dash-card-v   { color: var(--success); }
 .dash-card-incorrect .dash-card-v { color: var(--error); }
 .dash-card-accuracy .dash-card-v  { color: var(--accent); }
+/* Pending-corrections card: green when caught up, amber when there's
+   a backlog. Updated by JS via .dash-pending-hot. */
+.dash-card-pending .dash-card-v             { color: var(--success); }
+.dash-card-pending .dash-card-v.dash-pending-hot { color: #f08a1f; }
 
 /* ----- Pills used in card values ----- */
 .dash-pill {

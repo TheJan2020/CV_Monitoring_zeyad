@@ -273,6 +273,22 @@ def snapshot_stats(camera_id: str | None = None) -> dict:
             f"AND correction_json NOT IN ('[]', 'null')",
             args,
         ).fetchone()[0]
+        # Backlog: snapshots the operator flagged 'incorrect' on a frame
+        # the system classified as out_of_frame (false negative) but
+        # hasn't yet drawn a correction box on. These are the
+        # highest-value training samples — the model was looking and
+        # missed, and the operator's drawn box would be ground truth.
+        # We can't filter on the JSON activity field directly without
+        # json_extract, which is reliable on SQLite ≥3.38 — fall back
+        # to a string LIKE match which is fine because the activity
+        # value is a short fixed token.
+        corrections_pending = db.execute(
+            f"SELECT COUNT(*) FROM snapshots "
+            f"WHERE {where} AND label = 'incorrect' "
+            f"AND state_json LIKE '%\"activity\":\"out_of_frame\"%' "
+            f"AND (correction_json IS NULL OR correction_json IN ('[]', 'null'))",
+            args,
+        ).fetchone()[0]
     return {
         "total": total,
         "scored": scored,
@@ -280,6 +296,7 @@ def snapshot_stats(camera_id: str | None = None) -> dict:
         "correct": correct,
         "incorrect": incorrect,
         "corrections_drawn": corrections,
+        "corrections_pending": corrections_pending,
     }
 
 

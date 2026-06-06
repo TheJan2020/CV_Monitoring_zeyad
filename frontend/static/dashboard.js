@@ -48,6 +48,15 @@ async function loadSnapStats() {
     document.getElementById("dash-snap-incorrect-pct").textContent =
       scored ? `${fmtPct(incorrect, scored)} of labeled` : "—";
     document.getElementById("dash-corrections").textContent = n(corr);
+    const pending = s.corrections_pending || 0;
+    const pendingEl = document.getElementById("dash-corrections-pending");
+    pendingEl.textContent = n(pending);
+    // Visual nudge: amber when there's a backlog, neutral when caught up.
+    pendingEl.classList.toggle("dash-pending-hot", pending > 0);
+    document.getElementById("dash-corrections-pending-sub").textContent =
+      pending === 0
+        ? "all caught up — every false negative has a drawn box ✓"
+        : `${pending} ready to draw — see History to feed the next re-train`;
 
     const acc = scored ? correct / scored : null;
     document.getElementById("dash-accuracy").textContent =
