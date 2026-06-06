@@ -60,6 +60,15 @@ _state: dict = {
     "last_person_count": 0,
     "snapshots_today": 0,
     "category": "event",
+    # 'activity' is what the /cameras list page reads to decide the
+    # status pill — when the field exists it shows 'connected · <act>'
+    # instead of stuck on 'connecting…'. Two values for an event cam:
+    #   person_detected — at least one person currently in frame
+    #   idle            — no one visible
+    "activity": "idle",
+    # FPS is also displayed in the status tooltip; we report the
+    # configured target so the value isn't 0.0.
+    "fps": 0.0,
 }
 
 
@@ -121,6 +130,7 @@ def main() -> int:
         _state["camera_id"] = cam_id
         _state["rtsp"] = rtsp
         _state["alive"] = True
+        _state["fps"] = target_fps
 
     if args.web:
         _start_web(args.web_host, args.web_port)
@@ -184,6 +194,7 @@ def main() -> int:
         with _state_lock:
             _state["last_person"] = person_detected
             _state["last_person_count"] = person_count
+            _state["activity"] = "person_detected" if person_detected else "idle"
 
         if person_detected and (loop_t - last_snap_ts) >= debounce_s:
             try:
