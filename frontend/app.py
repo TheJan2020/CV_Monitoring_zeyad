@@ -335,6 +335,23 @@ def api_auto_retrain_proxy(sub):
         return jsonify({"error": f"hub unreachable: {e.reason}"}), 503
 
 
+@app.route("/api/event-snapshots", methods=["GET"])
+def api_event_snapshots_proxy():
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+    from flask import Response
+    qs = request.query_string.decode("ascii", "ignore")
+    target = "http://127.0.0.1:8000/api/event-snapshots" + (f"?{qs}" if qs else "")
+    try:
+        with urlopen(Request(target, method="GET"), timeout=10) as r:
+            return Response(r.read(), mimetype="application/json", status=r.status)
+    except HTTPError as e:
+        return Response(e.read() or b'{"error":"hub error"}',
+                        mimetype="application/json", status=e.code)
+    except URLError as e:
+        return jsonify({"error": f"hub unreachable: {e.reason}"}), 503
+
+
 @app.route("/api/snapshots/<int:snap_id>/correction", methods=["GET", "PUT"])
 def api_snapshot_correction_proxy(snap_id):
     from urllib.request import Request, urlopen
