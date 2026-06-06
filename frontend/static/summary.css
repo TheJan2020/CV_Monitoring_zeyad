@@ -68,6 +68,10 @@
 }
 .sum-day-totkey { color: var(--text-muted); }
 .sum-day-totval { color: var(--text); font-weight: 600; }
+/* Labeled / Accuracy lines sit under a dotted rule so they read as a
+   separate group from the time totals above. */
+.sum-day-totline-label { font-size: 12px; }
+.sum-day-totline-label:first-of-type { border-top: 1px dashed var(--border); padding-top: 5px; margin-top: 3px; }
 
 .sum-day-charts {
   display: grid;

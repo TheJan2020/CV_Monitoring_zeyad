@@ -316,6 +316,9 @@ function computeDayStats(data) {
   const FALLBACK_HALF_INTERVAL_S = 30;
   let totalInBed = 0;
   let totalOutBed = 0;
+  let snapsLabeled = 0;
+  let snapsCorrect = 0;
+  let snapsIncorrect = 0;
   const byActivity = {};
   const byMotion = {};
 
@@ -356,6 +359,11 @@ function computeDayStats(data) {
     // image-space motion regardless of what the system thinks).
     const mot = (s.state && s.state.motion) || "unknown";
     byMotion[mot] = (byMotion[mot] || 0) + dur;
+
+    // Label tallies — used by the day-row 'X labeled of Y' line and
+    // the correct/incorrect ratio. Counted per snapshot, not by time.
+    if (s.label === "correct") { snapsLabeled++; snapsCorrect++; }
+    else if (s.label === "incorrect") { snapsLabeled++; snapsIncorrect++; }
   }
 
   // Activity %s computed over IN-BED time only.
@@ -385,7 +393,13 @@ function computeDayStats(data) {
     if (unknown > 0.5) motionPct.unknown = (unknown / motionTotal) * 100;
   }
 
-  return { totalInBed, totalOutBed, activityPct, motionPct, byActivity, byMotion };
+  return {
+    totalInBed, totalOutBed, activityPct, motionPct, byActivity, byMotion,
+    snapsTotal: sorted.length,
+    snapsLabeled,
+    snapsCorrect,
+    snapsIncorrect,
+  };
 }
 
 function renderDayRows(rows) {
@@ -420,6 +434,18 @@ function renderOneDayRow({ date, isToday, stats }) {
     ? Math.round((stats.totalInBed / totalDay) * 100)
     : 0;
 
+  // Operator-labeling progress on this day's snapshots.
+  const sTotal = stats.snapsTotal || 0;
+  const sLabeled = stats.snapsLabeled || 0;
+  const sCorrect = stats.snapsCorrect || 0;
+  const sIncorrect = stats.snapsIncorrect || 0;
+  const labeledPct = sTotal > 0 ? Math.round((sLabeled / sTotal) * 100) : 0;
+  const accuracyPct = sLabeled > 0 ? Math.round((sCorrect / sLabeled) * 100) : null;
+  const labeledLine = `${sLabeled} / ${sTotal}` + (sTotal > 0 ? ` (${labeledPct}%)` : "");
+  const accuracyLine = accuracyPct === null
+    ? "—"
+    : `${accuracyPct}% — ${sCorrect}✓ / ${sIncorrect}✗`;
+
   return `
     <div class="sum-day-row" data-date="${date}">
       <div class="sum-day-label">
@@ -439,6 +465,14 @@ function renderOneDayRow({ date, isToday, stats }) {
         <div class="sum-day-totline">
           <span class="sum-day-totkey">In-bed %</span>
           <span class="sum-day-totval">${inBedPct}%</span>
+        </div>
+        <div class="sum-day-totline sum-day-totline-label">
+          <span class="sum-day-totkey">Labeled</span>
+          <span class="sum-day-totval">${labeledLine}</span>
+        </div>
+        <div class="sum-day-totline sum-day-totline-label">
+          <span class="sum-day-totkey">Accuracy</span>
+          <span class="sum-day-totval">${accuracyLine}</span>
         </div>
       </div>
 
