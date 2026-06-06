@@ -289,8 +289,22 @@ class CameraSubprocess:
             v = pose_state.get(key)
             if v is not None and v != "":
                 env[env_var] = str(v)
+        # Worker dispatch:
+        #   type=event → event_worker.py (snapshot capture only — no
+        #                pose, no posture, no in-crib tracker)
+        #   anything else → workbench_activity.py (the existing baby /
+        #                general worker)
+        # Reading the type directly off self.config rather than env so
+        # the line above where we set CAMERA_TYPE stays the single
+        # source of truth and there's no risk of drift between args.
+        cam_type = (self.config.get("type") or "general").strip().lower()
+        worker_script = "event_worker.py" if cam_type == "event" else "workbench_activity.py"
+        # Event workers always need CAMERA_ID in the env to know which
+        # row to write under. The frame-pump branch sets it for the
+        # other worker too; doing it unconditionally is harmless.
+        env["CAMERA_ID"] = self.id
         args = [
-            _PY, "-u", "workbench_activity.py",
+            _PY, "-u", worker_script,
             "--web", "--no-show",
             "--web-host", "0.0.0.0",
             "--web-port", str(self.port),
