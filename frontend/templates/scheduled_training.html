@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Scheduled training — PrimeAnalyze{% endblock %}
+{% block page_title %}Scheduled training{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='scheduled_training.css') }}">
+
+<section class="hist-section">
+  <p class="muted st-help">
+    The auto-retrain agent runs every night at <strong>03:00 Riyadh
+    time</strong>. Each iteration: builds a fresh dataset from every
+    operator-labeled snapshot + any drawn correction boxes, fine-tunes
+    starting from the current production weights, evaluates the
+    candidate against the slice of snapshots you marked
+    <em>incorrect</em> since the last run, and auto-promotes only if
+    the candidate beats the current model on F1 without hurting recall.
+  </p>
+
+  <div class="st-status-card" id="st-status-card">
+    <div class="st-status-line">
+      <span class="st-status-key">Now</span>
+      <span class="st-status-val" id="st-status-now">—</span>
+    </div>
+    <div class="st-status-line">
+      <span class="st-status-key">Last iteration</span>
+      <span class="st-status-val" id="st-status-last">—</span>
+    </div>
+    <div class="st-status-line">
+      <span class="st-status-key">Iterations on file</span>
+      <span class="st-status-val" id="st-status-count">—</span>
+    </div>
+    <div class="st-status-actions">
+      <button class="btn" id="st-run-now">Run now</button>
+      <label class="st-checkbox" title="Skip the 30-new-labels guard">
+        <input type="checkbox" id="st-force"> force (ignore label-count guard)
+      </label>
+      <label class="st-checkbox" title="Train + eval but don't promote even if the candidate wins">
+        <input type="checkbox" id="st-no-promote"> no-promote (eval only)
+      </label>
+    </div>
+  </div>
+</section>
+
+<section class="hist-section">
+  <h3>Iterations</h3>
+  <div id="st-iter-list"></div>
+  <p class="muted" id="st-iter-empty" hidden>No iterations yet — the first will appear here after the agent runs.</p>
+</section>
+
+<!-- Iteration details modal -->
+<div id="st-modal" class="st-modal" hidden>
+  <div class="st-modal-backdrop" data-close></div>
+  <div class="st-modal-body">
+    <div class="st-modal-head">
+      <h3 id="st-modal-title">Iteration</h3>
+      <button class="st-modal-x" data-close aria-label="Close">×</button>
+    </div>
+    <div class="st-modal-content" id="st-modal-content">Loading…</div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='scheduled_training.js') }}"></script>
+{% endblock %}

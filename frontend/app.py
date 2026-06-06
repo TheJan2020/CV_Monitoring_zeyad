@@ -304,6 +304,37 @@ def api_history(cam_id):
     return jsonify({"error": (body or {}).get("error") or f"hub status {status}"}), status or 502
 
 
+@app.route("/scheduled-training")
+def scheduled_training_page():
+    return render_template(
+        "scheduled_training.html",
+        user=session["user"],
+        active="scheduled",
+    )
+
+
+@app.route("/api/auto-retrain", methods=["GET", "POST"], defaults={"sub": ""})
+@app.route("/api/auto-retrain/<path:sub>", methods=["GET", "POST"])
+def api_auto_retrain_proxy(sub):
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+    from flask import Response
+    target = "http://127.0.0.1:8000/api/auto-retrain"
+    if sub:
+        target = f"{target}/{sub}"
+    body = request.get_data() if request.method == "POST" else None
+    headers = {"Content-Type": request.headers.get("Content-Type", "application/json")}
+    try:
+        req = Request(target, data=body, method=request.method, headers=headers)
+        with urlopen(req, timeout=30) as r:
+            return Response(r.read(), mimetype="application/json", status=r.status)
+    except HTTPError as e:
+        return Response(e.read() or b'{"error":"hub error"}',
+                        mimetype="application/json", status=e.code)
+    except URLError as e:
+        return jsonify({"error": f"hub unreachable: {e.reason}"}), 503
+
+
 @app.route("/api/snapshots/<int:snap_id>/correction", methods=["GET", "PUT"])
 def api_snapshot_correction_proxy(snap_id):
     from urllib.request import Request, urlopen

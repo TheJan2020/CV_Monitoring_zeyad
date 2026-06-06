@@ -2555,6 +2555,72 @@ def api_classes_predict(cid, img_id):
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
 
+# ---------- auto-retrain (scheduled training) -------------------------------
+
+_auto_retrain_proc = None  # subprocess.Popen | None
+_auto_retrain_lock = threading.Lock()
+
+
+@app.route("/api/auto-retrain/iterations", methods=["GET"])
+def api_auto_retrain_list():
+    import auto_retrain_state as st
+    return jsonify({"iterations": st.list_iterations()})
+
+
+@app.route("/api/auto-retrain/iterations/<int:iter_id>", methods=["GET"])
+def api_auto_retrain_get(iter_id):
+    import auto_retrain_state as st
+    rec = st.load_iteration(iter_id)
+    if rec is None:
+        return jsonify({"error": "not found"}), 404
+    rec["log_tail"] = st.load_log(iter_id, tail_lines=300)
+    return jsonify(rec)
+
+
+@app.route("/api/auto-retrain/status", methods=["GET"])
+def api_auto_retrain_status():
+    import auto_retrain_state as st
+    global _auto_retrain_proc
+    running = bool(_auto_retrain_proc and _auto_retrain_proc.poll() is None)
+    iters = st.list_iterations()
+    last = iters[0] if iters else None
+    return jsonify({
+        "running": running,
+        "pid": _auto_retrain_proc.pid if running else None,
+        "last_iteration": last,
+        "iteration_count": len(iters),
+    })
+
+
+@app.route("/api/auto-retrain/start", methods=["POST"])
+def api_auto_retrain_start():
+    """Spawn a manual auto-retrain iteration. The scheduled task uses
+    the same script directly; this endpoint just exposes a 'run now'
+    button for operators."""
+    global _auto_retrain_proc
+    body = request.get_json(silent=True) or {}
+    with _auto_retrain_lock:
+        if _auto_retrain_proc and _auto_retrain_proc.poll() is None:
+            return jsonify({"error": "already running", "pid": _auto_retrain_proc.pid}), 409
+        repo = Path(__file__).resolve().parent
+        cmd = [
+            sys.executable, str(repo / "tools" / "auto_retrain.py"),
+            "--camera", body.get("camera", "cam_1"),
+        ]
+        if body.get("force"):
+            cmd.append("--force")
+        if "min_new_labels" in body:
+            cmd += ["--min-new-labels", str(int(body["min_new_labels"]))]
+        if body.get("no_promote"):
+            cmd.append("--no-promote")
+        _auto_retrain_proc = subprocess.Popen(
+            cmd, cwd=str(repo),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        )
+        return jsonify({"started": True, "pid": _auto_retrain_proc.pid})
+
+
 @app.route("/healthz")
 def healthz():
     body = {
