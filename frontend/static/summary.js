@@ -691,8 +691,18 @@ function segmentsFromSnapshots(snaps) {
 // the thumbnail, the activity-mix bar on the overview row) — just not
 // for the bed bucket itself.
 function _bedFromSnapshot(s) {
-  const persons = (s.state && s.state.person_count) || 0;
-  let systemSaysIn = persons > 0;
+  // The system's bed claim is the activity. Anything OTHER than
+  // out_of_frame means it believes the baby is in the crib —
+  // in_crib (current), and the legacy 5-state values asleep / lying
+  // / sitting / moving_a_lot on older snapshots. Using person_count
+  // here is wrong: a baby cam can have person_count > 0 from a
+  // transient detection that never built up enough frames to form
+  // a lock — the tracker still emits activity = out_of_frame, but
+  // person_count = 1 made _bedFromSnapshot's old logic say 'in
+  // bed' and then flip to 'out of bed' on the operator's
+  // 'incorrect' label.
+  const act = (s.state && s.state.activity) || "out_of_frame";
+  let systemSaysIn = act !== "out_of_frame";
   if (s.label === "incorrect") systemSaysIn = !systemSaysIn;
   return systemSaysIn ? SUM_BED_IN : SUM_BED_OUT;
 }
