@@ -63,6 +63,14 @@
       </div>
       <p class="cw-event-status muted" id="cw-event-status">Pick an event camera and click Load to see captures.</p>
       <div id="cw-event-grid" class="cw-event-grid" hidden></div>
+
+      <!-- Enlargement modal — same UX as the event-camera detail page. -->
+      <div id="cw-event-modal" class="cw-event-modal" hidden>
+        <div class="cw-event-modal-backdrop" data-close></div>
+        <button class="cw-event-modal-x" data-close aria-label="Close">×</button>
+        <img id="cw-event-modal-img" alt="">
+        <div class="cw-event-modal-meta" id="cw-event-modal-meta">—</div>
+      </div>
       <div class="cw-event-actions" id="cw-event-actions" hidden>
         <span class="muted" id="cw-event-selcount">0 selected</span>
         <button class="btn btn-secondary" id="cw-event-selectall">Select all</button>

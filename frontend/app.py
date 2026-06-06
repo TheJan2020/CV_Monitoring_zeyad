@@ -454,8 +454,14 @@ def camera_detail(cam_id):
     if not cam:
         return redirect(url_for("cameras_page"))
     cam_type = cam.get("type", "general")
+    # Event cameras get a much simpler detail page — no baby tracker /
+    # in-crib panel / activity timeline. Just current status + recent
+    # captures + a link into the importer. The baby-cam template hard-
+    # codes 'baby in crib' copy and was showing it on /cameras/dining_room
+    # which was both wrong and confusing.
+    template = "camera_detail_event.html" if cam_type == "event" else "camera_detail.html"
     return render_template(
-        "camera_detail.html",
+        template,
         user=session["user"],
         active="cameras",
         host=request.host.split(":")[0],

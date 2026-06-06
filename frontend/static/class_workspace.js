@@ -270,24 +270,56 @@ let evAvailable = [];         // {id, captured_at, file_rel, person_count}[]
 
 function evRenderGrid() {
   evGrid.innerHTML = evAvailable.map((s) => `
-    <label class="cw-event-thumb" data-id="${s.id}">
-      <input type="checkbox" data-id="${s.id}" ${evSelected.has(s.id) ? "checked" : ""}>
-      <img src="/api/snapshots/${s.file_rel}" loading="lazy" alt="">
+    <div class="cw-event-thumb" data-id="${s.id}">
+      <input type="checkbox" data-id="${s.id}" ${evSelected.has(s.id) ? "checked" : ""}
+             title="Tick to include in import">
+      <img src="/api/snapshots/${s.file_rel}" loading="lazy" alt=""
+           data-src="/api/snapshots/${s.file_rel}"
+           data-cap="${s.captured_at}"
+           data-pc="${s.person_count || 0}"
+           title="Click to enlarge">
       <span class="cw-event-meta">
         ${new Date(s.captured_at * 1000).toLocaleString()}
         ${s.person_count ? ` · ${s.person_count} person${s.person_count === 1 ? "" : "s"}` : ""}
       </span>
-    </label>
+    </div>
   `).join("");
   evGrid.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-    cb.addEventListener("change", (e) => {
+    cb.addEventListener("change", () => {
       const id = Number(cb.dataset.id);
       if (cb.checked) evSelected.add(id);
       else evSelected.delete(id);
       updateSelCount();
     });
   });
+  // Click on the image (not the checkbox) opens the enlargement modal.
+  evGrid.querySelectorAll(".cw-event-thumb img").forEach((img) => {
+    img.addEventListener("click", () => {
+      evModalImg.src = img.dataset.src;
+      const pc = +img.dataset.pc;
+      evModalMeta.textContent =
+        `${new Date((+img.dataset.cap) * 1000).toLocaleString()}`
+        + (pc ? ` · ${pc} person${pc === 1 ? "" : "s"}` : "");
+      evModal.hidden = false;
+    });
+  });
   updateSelCount();
+}
+
+// Enlargement modal handles.
+const evModal     = document.getElementById("cw-event-modal");
+const evModalImg  = document.getElementById("cw-event-modal-img");
+const evModalMeta = document.getElementById("cw-event-modal-meta");
+if (evModal) {
+  evModal.querySelectorAll("[data-close]").forEach((el) =>
+    el.addEventListener("click", () => { evModal.hidden = true; evModalImg.src = ""; }),
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !evModal.hidden) {
+      evModal.hidden = true;
+      evModalImg.src = "";
+    }
+  });
 }
 function updateSelCount() {
   evSelCount.textContent = `${evSelected.size} selected`;

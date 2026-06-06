@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ camera.name }} — PrimeAnalyze{% endblock %}
+{% block page_title %}{{ camera.name }}{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='camera_detail_event.css') }}">
+
+<section class="hist-section">
+  <p class="muted ev-help">
+    Event camera. Captures a snapshot whenever YOLO11s detects a person.
+    Snapshots flow into the
+    <a href="/classes">custom class workspace's importer</a> for labeling and
+    re-training. No live tracker — this page just shows current state and
+    the most recent captures.
+  </p>
+
+  <div class="ev-grid">
+    <div class="ev-card">
+      <div class="ev-card-k">Status</div>
+      <div class="ev-card-v" id="ev-status">—</div>
+      <div class="ev-card-sub" id="ev-status-sub">connecting…</div>
+    </div>
+    <div class="ev-card">
+      <div class="ev-card-k">Snapshots today</div>
+      <div class="ev-card-v" id="ev-snaps-today">—</div>
+      <div class="ev-card-sub">resets at midnight Riyadh</div>
+    </div>
+    <div class="ev-card">
+      <div class="ev-card-k">Last capture</div>
+      <div class="ev-card-v" id="ev-last-capture">—</div>
+      <div class="ev-card-sub" id="ev-last-capture-sub">debounce: 30 s between saves</div>
+    </div>
+    <div class="ev-card">
+      <div class="ev-card-k">People in frame</div>
+      <div class="ev-card-v" id="ev-people">—</div>
+      <div class="ev-card-sub" id="ev-people-sub">refreshes every 2 s</div>
+    </div>
+  </div>
+</section>
+
+<section class="hist-section">
+  <h3 class="ev-section-title">Recent captures</h3>
+  <p class="muted ev-strip-help">
+    Latest 24 snapshots captured by this camera. Click any to enlarge.
+    Use the
+    <a href="/classes">classes page</a>'s importer to pull these into a
+    training class.
+  </p>
+  <div class="ev-strip" id="ev-strip">
+    <div class="muted">Loading…</div>
+  </div>
+</section>
+
+<section class="hist-section">
+  <div class="ev-meta">
+    <div><span class="ev-meta-k">Camera id:</span> <code>{{ camera.id }}</code></div>
+    <div><span class="ev-meta-k">Worker port:</span> <code>{{ camera.port }}</code></div>
+    <div><span class="ev-meta-k">Source:</span> <code>{{ camera.rtsp_url_masked }}</code></div>
+  </div>
+</section>
+
+<!-- Image enlargement modal -->
+<div id="ev-modal" class="ev-modal" hidden>
+  <div class="ev-modal-backdrop" data-close></div>
+  <button class="ev-modal-x" data-close aria-label="Close">×</button>
+  <img id="ev-modal-img" alt="">
+  <div class="ev-modal-meta" id="ev-modal-meta">—</div>
+</div>
+
+<script>
+  window.__CAM_ID = "{{ camera.id }}";
+</script>
+<script src="{{ url_for('static', filename='camera_detail_event.js') }}"></script>
+{% endblock %}

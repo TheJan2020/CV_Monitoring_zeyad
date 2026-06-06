@@ -271,12 +271,14 @@
 .cw-event-status { font-size: 12px; min-height: 14px; margin: 0 0 8px 0; }
 .cw-event-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 6px;
+  /* Larger default tile so faces / context are recognizable at a glance.
+     Was 130px; the operator couldn't tell which captures had the baby. */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
   margin-top: 10px;
-  max-height: 360px;
+  max-height: 640px;
   overflow-y: auto;
-  padding: 4px;
+  padding: 6px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -288,18 +290,51 @@
   background: #000;
   border-radius: 4px;
   overflow: hidden;
-  cursor: pointer;
 }
-.cw-event-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cw-event-thumb img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  cursor: zoom-in;
+}
 .cw-event-thumb input[type="checkbox"] {
   position: absolute;
-  top: 5px;
-  left: 5px;
+  top: 6px;
+  left: 6px;
   z-index: 2;
   accent-color: var(--accent);
-  transform: scale(1.2);
+  transform: scale(1.4);
+  cursor: pointer;
 }
 .cw-event-thumb input:checked ~ img { outline: 3px solid var(--accent); outline-offset: -3px; }
+
+/* Enlargement modal (mirrors the event-camera detail page). */
+.cw-event-modal {
+  position: fixed; inset: 0; z-index: 999;
+  display: flex; align-items: center; justify-content: center;
+}
+.cw-event-modal[hidden] { display: none; }
+.cw-event-modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.85); }
+.cw-event-modal-x {
+  position: absolute; top: 18px; right: 22px;
+  background: transparent; border: none; color: #fff;
+  font-size: 32px; cursor: pointer; z-index: 2;
+}
+#cw-event-modal-img {
+  position: relative;
+  max-width: 92vw; max-height: 86vh;
+  border-radius: 8px;
+  box-shadow: 0 10px 60px rgba(0, 0, 0, 0.55);
+  z-index: 1;
+}
+.cw-event-modal-meta {
+  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-family: ui-monospace, monospace;
+  z-index: 2;
+}
 .cw-event-meta {
   position: absolute;
   bottom: 0; left: 0; right: 0;
