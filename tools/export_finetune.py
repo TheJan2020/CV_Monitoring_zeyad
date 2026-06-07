@@ -50,7 +50,12 @@ def main() -> int:
     )
     ap.add_argument(
         "--snap-dir",
-        default=str(REPO / "snapshots"),
+        # state_recorder.SNAPSHOTS_DIR is config/snapshots/ — the default
+        # used to be just 'snapshots/', which worked when invoked by a
+        # human who knew to pass --snap-dir, but broke the first
+        # auto_retrain run on 06-07: 'Snapshot dir not found:
+        # <repo>/snapshots'. Aligning the default with the live writer.
+        default=str(REPO / "config" / "snapshots"),
         help="Snapshot root directory (containing camera_id/date/HHMMSS.jpg)",
     )
     ap.add_argument(
