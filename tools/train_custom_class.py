@@ -72,6 +72,20 @@ def main() -> int:
         # nonsense overlays during training.
         mosaic=0.5,
         mixup=0.0,
+        # Shared-GPU friendliness: the box also runs cam_1, cam_2,
+        # dining_room, and the demo inference simultaneously. Ultralytics'
+        # default of 8 dataloader workers each tries to pin GPU memory
+        # at the validator step, which on a contended GPU returns
+        # 'CUDA error: resource already mapped' — exactly the crash we
+        # saw on the terea-sienna first run. workers=0 disables
+        # multiprocess dataloading (so no per-worker pinning), and the
+        # speed cost is negligible for the small datasets users hand-
+        # label (typically 20-200 images).
+        workers=0,
+        # Don't cache the dataset to RAM/disk on top of YOLO's normal
+        # in-memory caching — another small contributor to memory
+        # pressure when the live workers are running.
+        cache=False,
         # Single-class workflow: turn off cls loss weighting tweaks that
         # only matter for multi-class.
         single_cls=True,
