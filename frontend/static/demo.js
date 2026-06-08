@@ -158,7 +158,11 @@ poseToggle.addEventListener("change", () => {
 refreshClassChips();
 
 fpsSlider.addEventListener("input", () => { fpsVal.textContent = fpsSlider.value; });
-confSlider.addEventListener("input", () => { confVal.textContent = parseFloat(confSlider.value).toFixed(2); });
+// Slider is now a percent (1-100) for readability. Internally we
+// always compare against detection confidences which come back as
+// 0..1 floats, so confThreshold() does the divide-by-100 in one place.
+function confThreshold() { return (+confSlider.value || 0) / 100; }
+confSlider.addEventListener("input", () => { confVal.textContent = `${+confSlider.value}%`; });
 
 async function listCameras() {
   // Enumerate AFTER the user grants permission (labels are otherwise empty).
@@ -249,7 +253,7 @@ async function loop() {
         elInfMs.textContent = `${Math.round(data.inference_ms || 0)} ms`;
         elRttMs.textContent = `${Math.round(rtt)} ms`;
         const persons = (data.detections || []).filter(
-          (d) => d.class === "person" && d.confidence >= +confSlider.value,
+          (d) => d.class === "person" && d.confidence >= confThreshold(),
         ).length;
         elPersons.textContent = persons;
         frameTimes.push(performance.now());
@@ -276,7 +280,7 @@ async function loop() {
 
 function draw(data) {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
-  const minConf = +confSlider.value;
+  const minConf = confThreshold();
   // The inference image may have been resized — scale boxes to the
   // displayed video resolution.
   const sx = overlay.width / (data.image_width || overlay.width);
